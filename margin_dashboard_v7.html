@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Margin Playbook Dashboard v7 — Part 1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --bg:#12141a; --panel:#191c24; --panel2:#1f232d; --border:#2a2e3a;
+    --text:#e9e7e1; --text2:#a3a9b7; --muted:#666c7a;
+    --red:#c4554d; --amber:#d9a24a; --green:#5fa083; --blue:#6f93b8; --teal:#4e9e96; --clay:#c97b4a; --violet:#9b83b0;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;}
+  header h1{font-family:'Fraunces',serif;font-weight:600;font-size:22px;margin:0;}
+  header .sub{color:var(--text2);font-size:12.5px;margin-top:4px;}
+  .asof{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);text-align:right;}
+  .asof .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:6px;}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px 28px 60px;}
+  .grid{display:grid;grid-template-columns:2.1fr 1fr;gap:18px;}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr;}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:18px;}
+  .panel h2{font-family:'Fraunces',serif;font-size:15px;font-weight:600;margin:0 0 4px;}
+  .panel .desc{color:var(--muted);font-size:12px;margin-bottom:14px;}
+  .eyebrow{font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:600;}
+  .strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;}
+  @media(max-width:800px){.strip{grid-template-columns:repeat(2,1fr);}}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+  .stat .eyebrow{margin-bottom:6px;}
+  .stat .val{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;}
+  .stat .val.warn{color:var(--red);}
+  .stat input{background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:16px;padding:3px 6px;border-radius:4px;width:100%;margin-top:2px;}
+  .stat .foot{font-size:11.5px;color:var(--text2);margin-top:5px;}
+  .band-row{margin-bottom:16px;}
+  .band-row:last-child{margin-bottom:0;}
+  .band-label{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;}
+  .band-label .num{font-family:'IBM Plex Mono',monospace;color:var(--text2);}
+  .band-track{position:relative;height:20px;background:#14161d;border-radius:5px;border:1px solid var(--border);}
+  .band-target{position:absolute;top:0;bottom:0;background:rgba(95,160,131,.16);border-left:1px dashed rgba(95,160,131,.5);border-right:1px dashed rgba(95,160,131,.5);}
+  .band-fill{position:absolute;top:0;bottom:0;left:0;border-radius:5px 0 0 5px;transition:width .3s;}
+  .band-marker{position:absolute;top:-4px;width:2px;height:28px;background:var(--text);transition:left .3s;}
+  .band-note{font-size:11px;color:var(--muted);margin-top:5px;}
+  .tag{display:inline-block;font-size:10px;font-family:'IBM Plex Mono',monospace;padding:2px 6px;border-radius:4px;font-weight:600;}
+  .tag.breach{background:rgba(196,85,77,.18);color:var(--red);}
+  .tag.watch{background:rgba(217,162,74,.18);color:var(--amber);}
+  .tag.ok{background:rgba(95,160,131,.18);color:var(--green);}
+  .risk-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);}
+  .risk-item:last-child{border-bottom:none;}
+  .sev{width:4px;border-radius:2px;flex-shrink:0;}
+  .sev.high{background:var(--red);} .sev.med{background:var(--amber);} .sev.low{background:var(--blue);}
+  .risk-body{flex:1;}
+  .risk-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .risk-title{font-weight:600;font-size:13.5px;}
+  .risk-title .tkr{font-family:'IBM Plex Mono',monospace;color:var(--clay);}
+  .risk-meta{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  .risk-why{font-size:12.5px;color:var(--text2);margin-top:3px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:6px 7px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;}
+  th:hover{color:var(--text);}
+  td{padding:7px 7px;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;white-space:nowrap;}
+  tr:last-child td{border-bottom:none;}
+  .pill{font-size:9.5px;padding:2px 6px;border-radius:20px;font-family:'Inter';font-weight:600;}
+  .pill.idx{background:rgba(78,158,150,.16);color:var(--teal);}
+  .pill.opp{background:rgba(201,123,74,.16);color:var(--clay);}
+  .pill.hdg{background:rgba(111,147,184,.16);color:var(--blue);}
+  .pill.aw{background:rgba(155,131,176,.16);color:var(--violet);}
+  .pill.ov{background:rgba(163,169,183,.16);color:var(--text2);}
+  .pill.naked{background:rgba(196,85,77,.16);color:var(--red);}
+  .cpinput{width:64px;background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:3px 5px;border-radius:4px;}
+  .badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;font-family:'Inter';}
+  .badge.g{background:rgba(95,160,131,.18);color:var(--green);}
+  .badge.a{background:rgba(217,162,74,.18);color:var(--amber);}
+  .badge.r{background:rgba(196,85,77,.18);color:var(--red);}
+  .badge.n{background:rgba(102,108,122,.18);color:var(--muted);}
+  .upload-zone{border:1px dashed var(--border);border-radius:8px;padding:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--text2);}
+  .upload-zone label{background:var(--panel2);border:1px solid var(--border);padding:7px 12px;border-radius:6px;cursor:pointer;color:var(--text);font-weight:500;}
+  .upload-zone input[type=file]{display:none;}
+  .upload-status{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);}
+  .btn{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Inter';font-weight:500;}
+  .btn.primary{background:var(--teal);color:#0d1a18;border-color:var(--teal);font-weight:600;}
+  .footnote{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;}
+  .aw-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:12.5px;}
+  .aw-row:last-child{border-bottom:none;}
+  textarea.bulkpaste{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:8px;border-radius:6px;min-height:70px;resize:vertical;}
+  .acctform{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-bottom:10px;}
+  .acctform label{font-size:11px;color:var(--muted);display:block;margin-bottom:2px;}
+  .acctform input{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12.5px;padding:5px 7px;border-radius:5px;}
+  .empty-state{padding:30px 10px;text-align:center;color:var(--muted);font-size:13px;}
+  .accttoggle{display:flex;gap:6px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:3px;}
+  .accttoggle button{background:transparent;border:none;color:var(--text2);font-family:'Inter';font-weight:600;font-size:12px;padding:7px 14px;border-radius:6px;cursor:pointer;transition:background .15s,color .15s;}
+  .accttoggle button.active{background:var(--teal);color:#0d1a18;}
+  .accttoggle button:not(.active):hover{color:var(--text);}
+  .roadmap{border:1px dashed var(--border);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--text2);margin-top:14px;}
+  .roadmap b{color:var(--text);}
+  .filter-top{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:4px;}
+  .filter-range-display{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--teal);font-weight:600;}
+  .filter-range-sub{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .slider-wrap{position:relative;height:34px;margin:8px 0 4px;}
+  .slider-track-bg{position:absolute;left:0;right:0;top:15px;height:4px;background:var(--border);border-radius:2px;}
+  .slider-track-fill{position:absolute;top:15px;height:4px;background:var(--teal);border-radius:2px;opacity:.7;}
+  .range-slider{position:absolute;left:0;right:0;top:0;width:100%;height:34px;margin:0;-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;}
+  .range-slider::-webkit-slider-runnable-track{-webkit-appearance:none;height:4px;background:transparent;}
+  .range-slider::-moz-range-track{height:4px;background:transparent;}
+  .range-slider::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:16px;height:16px;border-radius:50%;background:var(--teal);cursor:pointer;margin-top:8px;border:2px solid var(--bg);box-shadow:0 0 0 1px rgba(78,158,150,.35);}
+  .range-slider::-moz-range-thumb{pointer-events:auto;width:16px;height:16px;border-radius:50%;background:var(--teal);cursor:pointer;border:2px solid var(--bg);box-shadow:0 0 0 1px rgba(78,158,150,.35);}
+  .filter-presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;}
+  .preset-btn{background:var(--panel2);color:var(--text2);border:1px solid var(--border);padding:6px 13px;border-radius:6px;font-family:'Inter',sans-serif;font-size:12px;cursor:pointer;transition:all .15s;}
+  .preset-btn:hover{border-color:var(--teal);color:var(--text);}
+  .preset-btn.active{background:rgba(78,158,150,.14);border-color:var(--teal);color:var(--teal);}
+  .filter-select{background:var(--panel2);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:6px;font-family:'Inter';font-size:12px;}
+  .subfilter-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+  .subfilter-row button{background:transparent;border:1px solid var(--border);color:var(--text2);font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border-radius:14px;cursor:pointer;}
+  .subfilter-row button.active{background:rgba(78,158,150,.14);border-color:var(--teal);color:var(--teal);}
+  .subfilter-row button:hover:not(.active){color:var(--text);}
+  tr.trade-open td{color:var(--text2);font-style:italic;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Margin Account — Playbook Alignment Dashboard</h1>
+    <div class="sub">v7 — account toggle, exclusions, DTE fix, plus P&amp;L / equities / cumulative view</div>
+  </div>
+  <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
+    <div class="accttoggle" id="acctToggle">
+      <button data-acct="both" class="active">Both</button>
+      <button data-acct="Core Margin">Core Margin</button>
+      <button data-acct="Options Margin">Options Margin</button>
+    </div>
+    <div class="asof">
+      <div><span class="dot"></span>As of <span id="asOfLabel">no data loaded yet</span></div>
+      <div style="margin-top:2px;">holdings-report + activities-export</div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- DATA INTAKE -->
+  <div class="panel" style="border-color:var(--teal);">
+    <h2>1. Load Today's Data</h2>
+    <div class="desc">Same two CSVs every day. Everything below recomputes automatically the moment you drop them in — no manual math on my end.</div>
+    <div class="upload-zone">
+      <label>Holdings CSV<input type="file" id="holdingsFile" accept=".csv"></label>
+      <label>Activities CSV<input type="file" id="activitiesFile" accept=".csv"></label>
+      <span class="upload-status" id="uploadStatus">Waiting for holdings-report CSV…</span>
+    </div>
+    <div class="acctform" style="margin-top:14px;">
+      <div><label>OM Max Buying Power (CAD)</label><input type="number" id="omMaxBP" placeholder="233182"></div>
+      <div><label>CM Max Buying Power (CAD)</label><input type="number" id="cmMaxBP" placeholder="223779"></div>
+      <div><label>OM Margin Requirement — broker figure (CAD)</label><input type="number" id="omMarginReq" placeholder="227862"></div>
+      <div><label>USD Margin Used, Core Margin</label><input type="number" id="usdMarginUsed" placeholder="60799"></div>
+    </div>
+    <div class="footnote">These four numbers only exist in your broker's UI, not in the CSV exports — paste them once, they're saved in this artifact's storage and persist until you update them.</div>
+    <div class="roadmap">Loads both CSVs → the Playbook Alignment view above updates from the holdings snapshot, and the P&amp;L &amp; Trade History panel below rebuilds from the activities export. XEQT / VEQT / TBIL / CASH / CASH.TO and interest/dividends/tax/transfers are excluded everywhere — this is a trading-P&amp;L view, not a full account ledger.</div>
+  </div>
+
+  <div id="dashboardBody" style="display:none;">
+
+  <!-- PRIORITY ACTIONS -->
+  <div class="panel" style="border-color:var(--red);">
+    <h2>Flags — Mechanical Checks Only</h2>
+    <div class="desc">DTE thresholds, undefined-risk legs, and BP goals — computed automatically. Judgment calls (is a move sustained, is this a good roll opportunity) still need you or a chat with me — this list won't make that call for you.</div>
+    <div id="riskQueue"></div>
+  </div>
+
+  <div class="strip" id="topStrip"></div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>Assignment-Willing Puts</h2>
+        <div class="desc">Naked-by-structure positions on your approved list (edit <span class="mono">ASSIGNMENT_WILLING_TICKERS</span> in the script to change it) — tracked for roll timing, not flagged as risk.</div>
+        <div id="awPanel"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Position Management</h2>
+        <div class="desc">Every spread, one line each. Click a column header to sort.</div>
+        <div style="overflow-x:auto;">
+        <table id="posTable">
+          <thead><tr>
+            <th data-k="tick">Ticker</th><th data-k="acct">Acct</th><th data-k="sleeve">Sleeve</th><th>Legs</th><th data-k="dte">DTE</th><th data-k="ctr">Ctr</th>
+            <th data-k="entry">Entry</th><th data-k="cur">Current</th><th data-k="pl">+/-</th><th>Close</th><th>Dist.</th><th>Status</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Closing Prices — Low Compute</h2>
+        <div class="desc">Bulk paste always works, zero network calls, no dependency on a third-party API staying online — this is the one to trust. Auto-fetch tries a free Finnhub key first (if you add one — most reliable), then falls back to two unofficial no-key endpoints (Yahoo, Stooq) which can be blocked or rate-limited without warning. If auto-fetch comes back empty, that's expected sometimes — paste manually.</div>
+        <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="finnhubKey" placeholder="Optional: free Finnhub API key (finnhub.io/register) for reliable auto-fetch" style="flex:1;min-width:260px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;">
+          <span class="upload-status" style="font-size:11px;">saved automatically in this browser</span>
+        </div>
+        <textarea class="bulkpaste" id="bulkPaste" placeholder="Paste one per line, any of these formats work:&#10;AAPL 352.10&#10;SPY, 718.40&#10;QQQ: 690.15"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn primary" onclick="parseBulkPaste()">Apply pasted prices</button>
+          <button class="btn" onclick="fetchClosingPrices()" id="autoFetchBtn">⟳ Auto-fetch (cached daily)</button>
+          <span class="upload-status" id="fetchStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Sleeve Allocation</h2>
+        <div class="desc">Share of deployed spread BP vs. playbook target</div>
+        <div id="sleeveBands"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PART 2: P&L / TRADE HISTORY ============ -->
+  <div class="panel" id="pnlSection" style="display:none;border-color:var(--teal);">
+    <h2>P&amp;L &amp; Trade History</h2>
+    <div class="desc">Rebuilt from your activities export — one row per symbol's full round trip (adds/trims collapsed), same reconstruction logic as the day-trading dashboard. Realized P&amp;L only counts fully-closed positions (cash actually received/paid); open positions show current unrealized gain/loss from the holdings snapshot, never a projected mark. Respects the account toggle above.</div>
+
+    <div class="slider-wrap-outer" style="margin-top:16px;">
+      <div class="filter-top">
+        <div>
+          <div class="eyebrow">Date range in scope (by close date)</div>
+          <div class="filter-range-display" id="filterRangeDisplay">—</div>
+        </div>
+        <div class="filter-range-sub" id="filterRangeSub"></div>
+      </div>
+      <div class="slider-wrap">
+        <div class="slider-track-bg"></div>
+        <div class="slider-track-fill" id="sliderTrackFill"></div>
+        <input type="range" id="sliderStart" class="range-slider" min="0" max="0" step="1" value="0">
+        <input type="range" id="sliderEnd" class="range-slider" min="0" max="0" step="1" value="0">
+      </div>
+      <div class="filter-presets" id="filterPresets">
+        <button class="preset-btn active" data-preset="all">Full range</button>
+        <button class="preset-btn" data-preset="30">Last 30 days</button>
+        <button class="preset-btn" data-preset="90">Last 90 days</button>
+        <select class="filter-select" id="monthSelect"><option value="">Jump to month…</option></select>
+      </div>
+    </div>
+
+    <div class="accttoggle" id="bucketToggle" style="margin-top:18px;flex-wrap:wrap;">
+      <button data-bucket="all" class="active">All</button>
+      <button data-bucket="equity">Equity</button>
+      <button data-bucket="idx">Index</button>
+      <button data-bucket="opp">Opportunistic</button>
+      <button data-bucket="hdg">Hedge</button>
+      <button data-bucket="naked">Other</button>
+    </div>
+    <div id="subfilterRow" class="subfilter-row"></div>
+
+    <div class="strip" id="pnlStrip" style="margin-top:16px;"></div>
+
+    <div class="panel" style="background:var(--panel2);">
+      <h2 style="font-size:13px;">Cumulative Realized P&amp;L</h2>
+      <div class="desc">Closed trades only, in the current filter scope, ordered by close date</div>
+      <svg id="equitySvg" viewBox="0 0 1000 220" style="width:100%;height:220px;display:block;"></svg>
+    </div>
+
+    <div class="panel" style="background:var(--panel2);">
+      <h2 style="font-size:13px;">Trade Log</h2>
+      <div class="desc">Click a column header to sort. Open positions show cost-basis-to-date, not counted in realized P&amp;L.</div>
+      <div style="overflow-x:auto;">
+      <table id="tradeTable">
+        <thead><tr>
+          <th data-k="end_date">Closed</th><th data-k="acct">Acct</th><th data-k="tick">Ticker</th><th data-k="sleeve">Type</th>
+          <th>Legs</th><th data-k="initial_qty">Ctr</th><th data-k="net_cash">Realized P&amp;L</th><th>Result</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="empty-state" id="emptyState">Upload your holdings CSV above to populate the dashboard.</div>
+</div>
+
+<script>
+// ---- config: edit these lists as your intent changes ----
+const ASSIGNMENT_WILLING_TICKERS = ['PLTR','COIN'];
+const INDEX_TICKERS = ['SPY','QQQ','IWM'];
+// Excluded from every calc: long-term buy-and-hold ETFs and cash-equivalents. Never sold, not part of the options playbook.
+const EXCLUDED_TICKERS = ['XEQT','VEQT','TBIL','CASH.TO','CASH'];
+const sleeveLabel = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','Assign-Willing'],ov:['ov','Overlay'],naked:['naked','Naked (review)']};
+
+let positions = [];
+let allEquityRows = [];
+let activityRows = [];  // staged for Part 2
+let asOfDate = null;
+let closes = {};
+let sortKey = 'tick', sortDir = 1;
+let selectedAccount = 'both';  // 'both' | 'Core Margin' | 'Options Margin'
+let ACCOUNT_ID_TO_NAME = {};   // populated from holdings 'Account Number' -> 'Account Name'
+let holdingsLoaded = false, activitiesLoaded = false;
+let tradeEpisodes = [];
+let selectedBucket = 'all', selectedSubfilter = 'all';
+let uniqueCloseDates = [];
+
+function acctMatches(acct){ return selectedAccount==='both' || acct===selectedAccount; }
+function getPositions(){ return positions.filter(p=>acctMatches(p.acct)); }
+
+// ---- persistence ----
+// window.storage is an Anthropic Artifacts-runtime API — it doesn't exist when this file is
+// opened standalone (double-clicked, no claude.ai wrapper), so it silently failed every time.
+// localStorage is the right tool here since this file runs as its own origin, not an artifact.
+function storageGet(key){
+  try{ const v = localStorage.getItem('marginDash:'+key); return v===null ? null : {value:v}; }
+  catch(e){ return null; }
+}
+function storageSet(key, value){
+  try{ localStorage.setItem('marginDash:'+key, value); }catch(e){}
+}
+async function loadSaved(){
+  try{
+    const r = storageGet('acct-summary');
+    if(r){
+      const v = JSON.parse(r.value);
+      document.getElementById('omMaxBP').value = v.omMaxBP||'';
+      document.getElementById('cmMaxBP').value = v.cmMaxBP||'';
+      document.getElementById('omMarginReq').value = v.omMarginReq||'';
+      document.getElementById('usdMarginUsed').value = v.usdMarginUsed||'';
+    }
+  }catch(e){}
+  try{
+    const r2 = storageGet('closes-cache');
+    if(r2){
+      const v2 = JSON.parse(r2.value);
+      if(v2.date === todayStr()) closes = v2.closes;
+    }
+  }catch(e){}
+  try{
+    const r3 = storageGet('finnhub-key');
+    if(r3) document.getElementById('finnhubKey').value = r3.value;
+  }catch(e){}
+}
+function saveFinnhubKey(){
+  storageSet('finnhub-key', document.getElementById('finnhubKey').value.trim());
+  document.getElementById('fetchStatus').textContent = 'Key saved locally in this browser';
+}
+async function saveAcctSummary(){
+  const v = {
+    omMaxBP: document.getElementById('omMaxBP').value,
+    cmMaxBP: document.getElementById('cmMaxBP').value,
+    omMarginReq: document.getElementById('omMarginReq').value,
+    usdMarginUsed: document.getElementById('usdMarginUsed').value,
+  };
+  storageSet('acct-summary', JSON.stringify(v));
+}
+['omMaxBP','cmMaxBP','omMarginReq','usdMarginUsed'].forEach(id=>{
+  document.addEventListener('DOMContentLoaded',()=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>{ saveAcctSummary(); renderTopStrip(); });
+  });
+});
+function todayStr(){ const d=new Date(); return d.toISOString().slice(0,10); }
+
+// ---- parsing ----
+function parseOptionSymbol(sym){
+  const m = sym.trim().match(/^(\S+)\s+(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+  if(!m) return null;
+  const tick=m[1], yy=m[2], mm=m[3], dd=m[4], cp=m[5], strikeStr=m[6];
+  const exp = new Date(Date.UTC(2000+parseInt(yy), parseInt(mm)-1, parseInt(dd)));
+  return {tick, exp, cp, strike: parseInt(strikeStr)/1000};
+}
+function daysBetween(d1,d2){ return Math.round((d2-d1)/86400000); }
+
+function findAsOfDate(rows){
+  for(const r of rows){
+    const v = r['Account Name'];
+    if(v && /As of/i.test(v)){
+      const m = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if(m) return new Date(Date.UTC(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3])));
+    }
+  }
+  return new Date(); // fallback: today — good enough for DTE math
+}
+
+function processHoldings(rows){
+  asOfDate = findAsOfDate(rows);
+  const optionRows=[], equityRows=[];
+  rows.forEach(r=>{
+    if(r['Account Number'] && r['Account Name']) ACCOUNT_ID_TO_NAME[r['Account Number']] = r['Account Name'];
+    const sym=(r['Symbol']||'').trim();
+    if(!sym) return;
+    const base = sym.split(' ')[0].trim();
+    if(EXCLUDED_TICKERS.includes(base)) return; // XEQT/VEQT/TBIL/CASH — never part of the options playbook
+    const sec=r['Security Type'];
+    const qty=parseFloat(r['Quantity']);
+    const mv=parseFloat(r['Market Value']);
+    const price=parseFloat(r['Market Price']);
+    const book=parseFloat(r['Book Value (Market)']);
+    const unreal=parseFloat(r['Market Unrealized Returns']);
+    const acct=r['Account Name'];
+    if(sec==='OPTION'){
+      const parsed=parseOptionSymbol(sym);
+      if(parsed){
+        optionRows.push({...parsed, acct, qty, mv, price, book, unreal, sym});
+      }
+    } else {
+      equityRows.push({tick:base, sec, acct, qty, mv, price, book, unreal});
+    }
+  });
+  const groups={};
+  optionRows.forEach(o=>{
+    const key=`${o.acct}|${o.tick}|${o.exp.getTime()}|${o.cp}`;
+    (groups[key]=groups[key]||[]).push(o);
+  });
+  const spreads=[];
+  Object.values(groups).forEach(legs=>{
+    const byQty={};
+    legs.forEach(l=>{ const k=Math.abs(l.qty); (byQty[k]=byQty[k]||[]).push(l); });
+    Object.values(byQty).forEach(items=>{
+      const longs=items.filter(x=>x.qty>0).sort((a,b)=>a.strike-b.strike);
+      const shorts=items.filter(x=>x.qty<0).sort((a,b)=>a.strike-b.strike);
+      const n=Math.min(longs.length, shorts.length);
+      for(let i=0;i<n;i++){
+        const L=longs[i], S=shorts[i];
+        const width=Math.abs(S.strike-L.strike);
+        const ctr=Math.abs(L.qty);
+        const entry=L.book+S.book;
+        const cur=L.mv+S.mv;
+        const netCredit=-entry;
+        const debit = netCredit<0;
+        const bp = debit ? -netCredit : Math.max(width*ctr*100-netCredit,0);
+        spreads.push({acct:L.acct, tick:L.tick, exp:S.exp, ctr,
+          legs:`${Math.min(L.strike,S.strike)}/${Math.max(L.strike,S.strike)}${S.cp}`,
+          entry, cur, bp, shortStrike:S.strike, longStrike:L.strike, side:S.cp==='P'?'put':'call', debit, sleeve:null});
+      }
+      for(let i=n;i<longs.length;i++){
+        const L=longs[i];
+        spreads.push({acct:L.acct, tick:L.tick, exp:L.exp, ctr:Math.abs(L.qty),
+          legs:`${L.strike}${L.cp} (long, unhedged)`, entry:L.book, cur:L.mv, bp:null,
+          shortStrike:null, side:L.cp==='P'?'put':'call', naked:'long', sleeve:null});
+      }
+      for(let i=n;i<shorts.length;i++){
+        const S=shorts[i];
+        spreads.push({acct:S.acct, tick:S.tick, exp:S.exp, ctr:Math.abs(S.qty),
+          legs:`${S.strike}${S.cp} (naked short)`, entry:S.book, cur:S.mv, bp:null,
+          shortStrike:S.strike, side:S.cp==='P'?'put':'call', naked:'short', sleeve:null});
+      }
+    });
+  });
+  spreads.forEach(s=>{ s.dte = daysBetween(asOfDate, s.exp); });
+  spreads.forEach(s=>{
+    if(INDEX_TICKERS.includes(s.tick)){
+      s.sleeve = s.debit ? 'hdg' : 'idx';
+    } else if(s.naked==='short' && ASSIGNMENT_WILLING_TICKERS.includes(s.tick)){
+      s.sleeve = 'aw';
+    } else if(s.naked==='short' && s.side==='call'){
+      const eq = equityRows.find(e=>e.tick===s.tick && e.acct===s.acct);
+      s.sleeve = (eq && eq.qty >= s.ctr*100) ? 'ov' : 'naked';
+    } else if(s.naked){
+      s.sleeve = 'naked';
+    } else {
+      s.sleeve = 'opp';
+    }
+  });
+  return {spreads, equityRows};
+}
+
+// ---- rendering ----
+// A vertical has TWO strikes and the P&L behavior flips depending on whether it's credit
+// (idx/opp/aw-style — profits staying OTM, max loss once price clears BOTH strikes) or debit
+// (hdg, or a directional opp bet — profits moving ITM, max gain once price clears both strikes).
+// The old version only ever measured distance to the short strike and called anything within 5%
+// "Watch — near strike" whether price was 4% away or 40% past both strikes — a credit spread
+// already sitting at max loss looked identical to one that just needed an eye kept on it.
+function computeDist(p){
+  const c = closes[p.tick];
+  if(!c || !p.shortStrike) return {distTxt:'—', distCls:'n', zone:null};
+  const isPut = p.side==='put';
+  const isCredit = !p.debit;
+
+  if(p.longStrike==null){
+    // naked single leg — one strike, no defined second boundary
+    const dist = isPut ? (c - p.shortStrike)/c*100 : (p.shortStrike - c)/c*100;
+    const zone = dist < 0 ? 'itm' : 'otm';
+    const label = (dist>=0?'+':'') + dist.toFixed(1) + '%';
+    const cls = dist<0 ? 'r' : (dist<10 ? 'a' : 'g');
+    return {distTxt:label, distCls:cls, zone, isCredit};
+  }
+
+  const upper = Math.max(p.shortStrike, p.longStrike);
+  const lower = Math.min(p.shortStrike, p.longStrike);
+  // For puts, ITM = price below strike, so price falling from above hits `upper` first, then `lower`.
+  // For calls, ITM = price above strike, so price rising hits `lower` first, then `upper`.
+  let zone;
+  if(isPut) zone = c > upper ? 'otm' : (c > lower ? 'partial' : 'full');
+  else zone = c < lower ? 'otm' : (c < upper ? 'partial' : 'full');
+
+  let distPct, label;
+  if(zone==='full'){
+    label = 'Past both strikes';
+    distPct = 0;
+  } else {
+    const threshold = zone==='otm' ? (isPut ? upper : lower) : (isPut ? lower : upper);
+    distPct = isPut ? (c-threshold)/c*100 : (threshold-c)/c*100;
+    label = (distPct>=0?'+':'') + distPct.toFixed(1) + '%' + (zone==='partial' ? ' to max' : '');
+  }
+  let cls;
+  if(zone==='full') cls = isCredit ? 'r' : 'g';
+  else if(zone==='partial') cls = isCredit ? 'r' : 'g';
+  else cls = distPct<5 ? 'r' : (distPct<10 ? 'a' : 'g');
+  return {distTxt:label, distCls:cls, zone, isCredit};
+}
+function statusOf(p, d){
+  if(p.sleeve==='naked') return {txt:'Undefined risk', cls:'r'};
+  if(p.sleeve==='hdg') return p.dte<35 ? {txt:'Roll overdue',cls:'r'} : (p.dte<=45 ? {txt:'Roll window',cls:'a'} : {txt:'Healthy',cls:'g'});
+  if(p.sleeve==='aw') return {txt:'Assignment-willing', cls:d.distCls==='r'?'a':'n'};
+  if(p.sleeve==='ov') return {txt:'Overlay', cls:'n'};
+  if(p.sleeve==='idx' && p.dte<=21) return {txt:'21-DTE checkpoint', cls:'a'};
+  if(!closes[p.tick]) return {txt:'Healthy', cls:'g'};
+  // Beyond here, d carries real zone info: 'otm' (still safely away from both strikes),
+  // 'partial' (short strike breached, long strike not yet — losses/gains still building),
+  // or 'full' (price has cleared both strikes — locked in, nothing left to "watch" for).
+  if(d.zone==='full') return d.isCredit ? {txt:'Max loss — fully ITM', cls:'r'} : {txt:'Max gain — fully ITM', cls:'g'};
+  if(d.zone==='partial') return d.isCredit ? {txt:'Breached — short ITM, losses building', cls:'r'} : {txt:'ITM — gain building', cls:'g'};
+  if(d.zone==='itm') return d.isCredit ? {txt:'Breached — undefined risk', cls:'r'} : {txt:'ITM', cls:'g'};
+  if(d.distCls==='r') return {txt:'Watch — near strike', cls:'a'};
+  return {txt:'Healthy', cls:'g'};
+}
+function renderTopStrip(){
+  const omMax = parseFloat(document.getElementById('omMaxBP').value)||0;
+  const omMarginReq = parseFloat(document.getElementById('omMarginReq').value)||0;
+  const usdUsed = parseFloat(document.getElementById('usdMarginUsed').value)||0;
+  const omDeployed = getPositions().filter(p=>p.acct==='Options Margin' && p.bp!=null).reduce((a,p)=>a+p.bp,0);
+  const nextCheckpoint = getPositions().filter(p=>p.sleeve==='hdg').sort((a,b)=>a.dte-b.dte)[0];
+  const awCount = getPositions().filter(p=>p.sleeve==='aw').length;
+  const awNotional = getPositions().filter(p=>p.sleeve==='aw').reduce((a,p)=>a+(p.shortStrike*100*p.ctr),0);
+  const cards = [];
+  if(selectedAccount!=='Core Margin'){
+    cards.push(`<div class="stat">
+      <div class="eyebrow">OM Max Buying Power</div>
+      <div class="val">$${omMax?omMax.toLocaleString():'—'}</div>
+      <div class="foot">Deployed (computed): ~$${omDeployed.toLocaleString(undefined,{maximumFractionDigits:0})} USD-equiv${omMarginReq?` · broker margin req: $${omMarginReq.toLocaleString()}`:''}</div>
+    </div>`);
+  }
+  if(selectedAccount!=='Options Margin'){
+    cards.push(`<div class="stat">
+      <div class="eyebrow">USD Margin Used (CM)</div>
+      <div class="val ${usdUsed>0?'warn':''}">$${usdUsed.toLocaleString()}</div>
+      <div class="foot">Target: $0</div>
+    </div>`);
+  }
+  cards.push(`<div class="stat">
+      <div class="eyebrow">Next Hedge Checkpoint</div>
+      <div class="val ${nextCheckpoint && nextCheckpoint.dte<35?'warn':''}">${nextCheckpoint ? nextCheckpoint.tick+' '+nextCheckpoint.dte+'d' : '—'}</div>
+      <div class="foot">${nextCheckpoint && nextCheckpoint.dte<35?'Past roll window':'On schedule'}</div>
+    </div>`);
+  cards.push(`<div class="stat">
+      <div class="eyebrow">Assignment-Willing Notional</div>
+      <div class="val">$${awNotional.toLocaleString()}</div>
+      <div class="foot">${awCount} position(s), by design</div>
+    </div>`);
+  document.getElementById('topStrip').innerHTML = cards.join('');
+}
+function renderRiskQueue(){
+  const flags = [];
+  getPositions().filter(p=>p.sleeve==='naked').forEach(p=>{
+    flags.push({sev:'high', title:`${p.tick} — undefined risk, not on approved list`, meta:`${p.legs} · ${p.acct}`,
+      why:`Naked leg on a ticker not in ASSIGNMENT_WILLING_TICKERS. Either add it to the list if intentional, or convert to a defined-risk spread.`});
+  });
+  getPositions().filter(p=>p.sleeve==='hdg' && p.dte<35).forEach(p=>{
+    flags.push({sev:'high', title:`${p.tick} ${p.legs} hedge — roll overdue`, meta:`DTE ${p.dte} · ${p.acct}`,
+      why:`Past the 35–45 DTE roll window. Consider a decision-tree check (sustained move vs. one bad session) before acting — see chat for the full framework.`});
+  });
+  getPositions().filter(p=>p.sleeve==='hdg' && p.dte>=35 && p.dte<=45).forEach(p=>{
+    flags.push({sev:'med', title:`${p.tick} ${p.legs} hedge — roll window`, meta:`DTE ${p.dte} · ${p.acct}`,
+      why:`Inside the 35–45 DTE window. Plan the roll, not urgent yet.`});
+  });
+  getPositions().filter(p=>p.sleeve==='idx' && p.dte<=21).forEach(p=>{
+    flags.push({sev:'med', title:`${p.tick} ${p.legs} — 21-DTE checkpoint`, meta:`DTE ${p.dte} · ${p.acct}`,
+      why:`At the mandatory index-sleeve review point.`});
+  });
+  const usdUsed = parseFloat(document.getElementById('usdMarginUsed').value)||0;
+  if(usdUsed>0) flags.push({sev:'med', title:'USD margin used > $0', meta:`$${usdUsed.toLocaleString()} in Core Margin`,
+    why:'Your stated goal is $0 USD margin used — trades funded from buying power, not a debit balance.'});
+  document.getElementById('riskQueue').innerHTML = flags.length ? flags.map(f=>`
+    <div class="risk-item"><div class="sev ${f.sev}"></div><div class="risk-body">
+      <div class="risk-top"><div class="risk-title">${f.title}</div><div class="risk-meta">${f.meta}</div></div>
+      <div class="risk-why">${f.why}</div>
+    </div></div>`).join('') : '<div class="empty-state">No mechanical flags right now.</div>';
+}
+function renderAssignmentWilling(){
+  const aw = getPositions().filter(p=>p.sleeve==='aw');
+  document.getElementById('awPanel').innerHTML = aw.length ? aw.map(p=>{
+    const d = computeDist(p);
+    const txt = closes[p.tick] ? `${d.distTxt} from strike${d.distCls==='r'?' · consider rolling out':''}` : 'paste close to check';
+    return `<div class="aw-row"><div><b class="mono" style="color:var(--violet);">${p.tick}</b> ${p.legs} × ${p.ctr} · DTE ${p.dte} · ${p.acct}</div>
+      <div class="badge ${closes[p.tick]?d.distCls:'n'}">${txt}</div></div>`;
+  }).join('') : '<div class="empty-state">None found.</div>';
+}
+function renderTable(){
+  const rows = [...getPositions()].sort((a,b)=>{
+    let av=a[sortKey], bv=b[sortKey];
+    if(typeof av==='string') return sortDir*av.localeCompare(bv);
+    return sortDir*((av||0)-(bv||0));
+  });
+  document.querySelector('#posTable tbody').innerHTML = rows.map(p=>{
+    const [cls,label]=sleeveLabel[p.sleeve];
+    const d = computeDist(p);
+    const st = statusOf(p,d);
+    const cp = closes[p.tick] ? closes[p.tick].toFixed(2) : '—';
+    const pl = p.cur - p.entry;
+    return `<tr>
+      <td style="font-family:'Inter';font-weight:600;color:var(--text);">${p.tick}</td>
+      <td style="color:var(--muted);font-size:11px;">${p.acct==='Core Margin'?'CM':'OM'}</td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td>${p.legs}</td>
+      <td>${p.dte}</td>
+      <td>${p.ctr}</td>
+      <td>${p.entry>=0?'+':'-'}$${Math.abs(p.entry).toLocaleString()}</td>
+      <td>${p.cur>=0?'+':'-'}$${Math.abs(p.cur).toLocaleString()}</td>
+      <td><span class="badge ${pl>=0?'g':'r'}">${pl>=0?'+':'-'}$${Math.abs(pl).toLocaleString()}</span></td>
+      <td>${cp}</td>
+      <td><span class="badge ${d.distCls}">${d.distTxt}</span></td>
+      <td><span class="badge ${st.cls}">${st.txt}</span></td>
+    </tr>`;
+  }).join('');
+}
+document.querySelectorAll('#posTable th[data-k]').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const k = th.dataset.k;
+    sortDir = (sortKey===k) ? -sortDir : 1;
+    sortKey = k;
+    renderTable();
+  });
+});
+function renderSleeveBands(){
+  const buckets = {idx:0,opp:0,hdg:0};
+  getPositions().forEach(p=>{ if(p.bp!=null && buckets.hasOwnProperty(p.sleeve)) buckets[p.sleeve]+=p.bp; });
+  const total = buckets.idx+buckets.opp+buckets.hdg || 1;
+  const targets = {idx:[45,55],opp:[35,45],hdg:[5,15]};
+  const names = {idx:'Core index spreads', opp:'Opportunistic single-name', hdg:'Tactical hedges'};
+  const colors = {idx:'var(--teal)', opp:'var(--clay)', hdg:'var(--blue)'};
+  document.getElementById('sleeveBands').innerHTML = Object.keys(buckets).map(k=>{
+    const pct = buckets[k]/total*100;
+    const [lo,hi] = targets[k];
+    return `<div class="band-row">
+      <div class="band-label"><span class="name">${names[k]}</span><span class="num">${pct.toFixed(1)}% <span class="tag ${pct<lo||pct>hi?'breach':'ok'}">target ${lo}–${hi}%</span></span></div>
+      <div class="band-track"><div class="band-target" style="left:${lo}%;width:${hi-lo}%;"></div>
+        <div class="band-fill" style="width:${pct}%;background:${colors[k]};"></div>
+        <div class="band-marker" style="left:${pct}%;"></div></div>
+    </div>`;
+  }).join('') + `<div class="band-note">Computed from BP required across ${getPositions().filter(p=>p.bp!=null).length} priced spreads (naked/unpriced legs excluded).</div>`;
+}
+function renderAll(){
+  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands();
+}
+
+// ---- closing prices ----
+function parseBulkPaste(){
+  const text = document.getElementById('bulkPaste').value;
+  const lines = text.split('\n');
+  let n=0;
+  lines.forEach(line=>{
+    const m = line.match(/([A-Za-z.]{1,6})\D+([\d.]+)/);
+    if(m){ closes[m[1].toUpperCase()] = parseFloat(m[2]); n++; }
+  });
+  document.getElementById('fetchStatus').textContent = `Applied ${n} prices`;
+  saveClosesCache();
+  renderAll();
+}
+async function saveClosesCache(){
+  storageSet('closes-cache', JSON.stringify({date:todayStr(), closes}));
+}
+// Auto-fetch: tries three sources per ticker, in order, stopping at the first success.
+//   1. Finnhub (if you've saved a free key) — the only one of these actually designed for
+//      client-side/browser use, so it's the most durable if you set it up.
+//   2. Yahoo Finance's unofficial chart endpoint — no key, but Yahoo has been actively
+//      blocking unauthenticated browser requests, so this increasingly returns nothing.
+//   3. Stooq's CSV quote endpoint — no key, historically permissive CORS, used as a last resort.
+// If all three fail for a ticker it lands in "couldn't reach" — paste that one manually.
+async function fetchFromFinnhub(t, key){
+  const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(t)}&token=${encodeURIComponent(key)}`);
+  if(!r.ok) throw new Error('http '+r.status);
+  const d = await r.json();
+  if(d && typeof d.c === 'number' && d.c > 0) return d.c;
+  throw new Error('no price');
+}
+async function fetchFromYahoo(t){
+  const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(t)}`);
+  if(!r.ok) throw new Error('http '+r.status);
+  const d = await r.json();
+  const meta = d && d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
+  const price = meta ? (meta.regularMarketPrice ?? meta.previousClose) : null;
+  if(price!=null) return price;
+  throw new Error('no price');
+}
+async function fetchFromStooq(t){
+  const r = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(t)}.US&f=sd2t2ohlcv&h&e=csv`);
+  if(!r.ok) throw new Error('http '+r.status);
+  const text = await r.text();
+  const lines = text.trim().split('\n');
+  if(lines.length<2) throw new Error('no data');
+  const cols = lines[1].split(',');
+  const c = parseFloat(cols[6]);
+  if(!isNaN(c) && c>0) return c;
+  throw new Error('no price');
+}
+async function fetchClosingPrices(){
+  const cached = storageGet('closes-cache');
+  if(cached){
+    const v = JSON.parse(cached.value);
+    if(v.date===todayStr() && Object.keys(v.closes).length>0){
+      closes = v.closes;
+      document.getElementById('fetchStatus').textContent = "Using today's cached prices (no new fetch)";
+      renderAll();
+      return;
+    }
+  }
+  const btn = document.getElementById('autoFetchBtn');
+  const status = document.getElementById('fetchStatus');
+  const tickers = [...new Set(positions.map(p=>p.tick))];
+  const finnhubKey = document.getElementById('finnhubKey').value.trim();
+  if(finnhubKey) storageSet('finnhub-key', finnhubKey);
+  btn.disabled = true;
+  let ok=0; const failed=[]; const source={};
+  for(let i=0;i<tickers.length;i++){
+    const t = tickers[i];
+    btn.textContent = `⟳ Fetching ${i+1}/${tickers.length}: ${t}`;
+    let price = null, src = null;
+    if(finnhubKey){
+      try{ price = await fetchFromFinnhub(t, finnhubKey); src='finnhub'; }catch(e){}
+    }
+    if(price==null){ try{ price = await fetchFromYahoo(t); src='yahoo'; }catch(e){} }
+    if(price==null){ try{ price = await fetchFromStooq(t); src='stooq'; }catch(e){} }
+    if(price!=null){ closes[t]=price; ok++; source[t]=src; } else failed.push(t);
+  }
+  saveClosesCache();
+  const srcCounts = Object.values(source).reduce((a,s)=>{a[s]=(a[s]||0)+1;return a;},{});
+  const srcSummary = Object.entries(srcCounts).map(([s,n])=>`${n} via ${s}`).join(', ');
+  status.textContent = failed.length
+    ? `Fetched ${ok}/${tickers.length}${srcSummary?' ('+srcSummary+')':''}. Couldn't reach: ${failed.join(', ')} — paste those manually above.`
+    : `Fetched and cached all ${ok} tickers (${srcSummary})`;
+  btn.disabled=false; btn.textContent="⟳ Auto-fetch (cached daily)";
+  renderAll();
+}
+
+// ============ PART 2: TRADE RECONSTRUCTION ============
+const TRADE_ACTIVITY_TYPES = ['Trade','OptionExpiry','OptionAssign'];
+const OPT_RE_ACT = /^(\S+)\s+(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/;
+
+function normalizeActivityRow(r, idx){
+  const symRaw = (r.symbol||'').trim();
+  const dir = r.direction;
+  const atype = r.activity_type;
+  const rawQty = parseFloat(r.quantity)||0;
+  let qty_signed = 0, net_cash = 0;
+  const unit_price = parseFloat(r.unit_price)||0;
+  if(atype==='Trade'){
+    qty_signed = rawQty;
+    net_cash = parseFloat(r.net_cash_amount)||0;
+  } else if(atype==='OptionExpiry'){
+    qty_signed = dir==='SHORT' ? Math.abs(rawQty) : -Math.abs(rawQty);
+    net_cash = 0; // worthless expiry, no cash
+  } else if(atype==='OptionAssign'){
+    const isOption = OPT_RE_ACT.test(symRaw);
+    if(isOption){
+      qty_signed = dir==='SHORT' ? Math.abs(rawQty) : -Math.abs(rawQty);
+      net_cash = 0; // the option leg itself carries no cash; the stock-side row does
+    } else {
+      qty_signed = dir==='LONG' ? Math.abs(rawQty) : -Math.abs(rawQty);
+      net_cash = parseFloat(r.net_cash_amount)||0;
+    }
+  }
+  const base = (r['underlying symbol']||symRaw.split(' ')[0]||'').trim();
+  const acctName = ACCOUNT_ID_TO_NAME[r.account_id] || r.account_id;
+  const ts = Date.parse(r.effective_at);
+  const dateOnly = (r.effective_at||'').slice(0,10);
+  return {orig_order:idx, ts, date:dateOnly, acct:acctName, symbol:symRaw, tick:base, qty_signed, net_cash, unit_price};
+}
+
+function buildLegEpisodes(rawRows){
+  const norm = [];
+  rawRows.forEach((r,i)=>{
+    if(!TRADE_ACTIVITY_TYPES.includes(r.activity_type)) return;
+    const base = (r['underlying symbol']||(r.symbol||'').split(' ')[0]||'').trim();
+    if(EXCLUDED_TICKERS.includes(base)) return;
+    norm.push(normalizeActivityRow(r, i));
+  });
+  norm.sort((a,b)=> (a.ts-b.ts) || (a.orig_order-b.orig_order));
+
+  const byKey = {};
+  norm.forEach(r=>{ const k=r.acct+'|'+r.symbol; (byKey[k]=byKey[k]||[]).push(r); });
+
+  const episodes = [];
+  Object.values(byKey).forEach(rows=>{
+    rows.sort((a,b)=> (a.ts-b.ts) || (a.orig_order-b.orig_order));
+    let pos=0, cur=null;
+    rows.forEach(row=>{
+      const q = row.qty_signed;
+      if(cur===null){
+        cur = {acct:row.acct, symbol:row.symbol, tick:row.tick,
+          start_date:row.date, start_order:row.ts,
+          net_cash:0, n_txns:0,
+          orientation: q>0 ? 'long':'short',
+          initial_qty: Math.abs(q),
+          first_unit_price: row.unit_price};
+      }
+      cur.net_cash += row.net_cash;
+      cur.n_txns += 1;
+      pos += q;
+      cur.end_date = row.date;
+      cur.end_order = row.ts;
+      if(Math.abs(pos) < 1e-9){ cur.still_open=false; episodes.push(cur); cur=null; }
+    });
+    if(cur!==null){ cur.still_open=true; episodes.push(cur); }
+  });
+
+  episodes.forEach(e=>{
+    const m = e.symbol.trim().match(OPT_RE_ACT);
+    if(m){
+      e.is_option = true; e.cp = m[5]; e.strike = parseInt(m[6])/1000;
+      e.exp = new Date(Date.UTC(2000+parseInt(m[2]), parseInt(m[3])-1, parseInt(m[4])));
+    } else { e.is_option = false; e.cp=null; e.strike=null; e.exp=null; }
+  });
+  return episodes;
+}
+
+// group option episodes into spreads (same acct|tick|exp|cp, matched by initial contract count,
+// paired chronologically long-vs-short) to resolve idx/hdg/opp; leftovers + non-options resolved after.
+let pairCounter = 0;
+function classifyEpisodes(episodes, equityRowsCurrent){
+  const groups = {};
+  episodes.filter(e=>e.is_option).forEach(e=>{
+    const key = e.acct+'|'+e.tick+'|'+e.exp.getTime()+'|'+e.cp;
+    (groups[key]=groups[key]||[]).push(e);
+  });
+  Object.values(groups).forEach(list=>{
+    const byQty = {};
+    list.forEach(e=>{ (byQty[e.initial_qty]=byQty[e.initial_qty]||[]).push(e); });
+    Object.values(byQty).forEach(items=>{
+      const longs = items.filter(e=>e.orientation==='long').sort((a,b)=>a.start_order-b.start_order);
+      const shorts = items.filter(e=>e.orientation==='short').sort((a,b)=>a.start_order-b.start_order);
+      const n = Math.min(longs.length, shorts.length);
+      for(let i=0;i<n;i++){
+        const L=longs[i], S=shorts[i];
+        const creditOpen = (S.first_unit_price||0) > (L.first_unit_price||0);
+        const sleeve = INDEX_TICKERS.includes(L.tick) ? (creditOpen?'idx':'hdg') : 'opp';
+        L.sleeve = sleeve; S.sleeve = sleeve;
+        const label = `${Math.min(L.strike,S.strike)}/${Math.max(L.strike,S.strike)}${S.cp}`;
+        L.legsLabel = label; S.legsLabel = label;
+        const pid = 'pair'+(pairCounter++);
+        L.pairId = pid; S.pairId = pid;
+      }
+    });
+  });
+  episodes.forEach(e=>{
+    if(e.sleeve) return;
+    if(!e.is_option){ e.sleeve='stock'; e.legsLabel='shares'; return; }
+    if(e.orientation==='short' && e.cp==='P' && ASSIGNMENT_WILLING_TICKERS.includes(e.tick)){
+      e.sleeve='aw'; e.legsLabel = `${e.strike}P (CSP)`; return;
+    }
+    if(e.orientation==='short' && e.cp==='C'){
+      const eq = equityRowsCurrent.find(x=>x.tick===e.tick && x.acct===e.acct);
+      const covered = eq && eq.qty >= e.initial_qty*100;
+      e.sleeve = covered ? 'ov' : 'naked';
+      e.legsLabel = `${e.strike}C ${covered?'(CC)':'(naked short)'}`;
+      return;
+    }
+    e.sleeve = 'naked';
+    e.legsLabel = `${e.strike}${e.cp} (naked ${e.orientation})`;
+  });
+  return episodes;
+}
+
+const BUCKET_SLEEVES = {equity:['stock','aw','ov'], idx:['idx'], opp:['opp'], hdg:['hdg'], naked:['naked']};
+const BUCKET_LABELS = {all:'All', equity:'Equity', idx:'Index', opp:'Opportunistic', hdg:'Hedge', naked:'Other'};
+
+// Two legs of the same spread (linked via pairId in classifyEpisodes) get merged into one
+// netted trade row here — a credit spread's short+long legs should show as ONE result, not
+// a separate "win" row for the short leg and a "loss" row for the long leg.
+function mergeIntoTrades(episodes){
+  const paired = {};
+  const trades = [];
+  episodes.forEach(e=>{
+    if(e.pairId){ (paired[e.pairId] = paired[e.pairId] || []).push(e); }
+    else trades.push(e);
+  });
+  Object.values(paired).forEach(pair=>{
+    if(pair.length!==2){ pair.forEach(e=>trades.push(e)); return; } // safety net, shouldn't happen
+    const [a,b] = pair;
+    const still_open = a.still_open || b.still_open;
+    trades.push({
+      acct:a.acct, tick:a.tick, sleeve:a.sleeve, legsLabel:a.legsLabel,
+      initial_qty:a.initial_qty, is_option:true,
+      net_cash: a.net_cash + b.net_cash,
+      still_open,
+      start_date: a.start_date < b.start_date ? a.start_date : b.start_date,
+      start_order: Math.min(a.start_order, b.start_order),
+      end_date: still_open ? null : (a.end_date > b.end_date ? a.end_date : b.end_date),
+      end_order: Math.max(a.end_order, b.end_order),
+      n_txns: a.n_txns + b.n_txns
+    });
+  });
+  return trades;
+}
+
+function bucketEpisodes(bucket){
+  const pool = tradeEpisodes.filter(e=>acctMatches(e.acct));
+  if(bucket==='all') return pool;
+  return pool.filter(e=>BUCKET_SLEEVES[bucket].includes(e.sleeve));
+}
+
+function tryBuildTrades(){
+  if(!holdingsLoaded || !activitiesLoaded) return;
+  const episodes = buildLegEpisodes(activityRows);
+  classifyEpisodes(episodes, allEquityRows);
+  tradeEpisodes = mergeIntoTrades(episodes);
+  document.getElementById('pnlSection').style.display='block';
+  setupPnlFilterBar();
+}
+
+// ---- date range slider ----
+function fmtDateShort(d){
+  const [y,m,dd] = d.split('-');
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[parseInt(m,10)-1]+' '+parseInt(dd,10)+', '+y;
+}
+let pnlListenersBound = false;
+function setupPnlFilterBar(){
+  const closedDates = [...new Set(tradeEpisodes.filter(e=>!e.still_open).map(e=>e.end_date))].sort();
+  uniqueCloseDates = closedDates.length ? closedDates : [todayStr()];
+  const s = document.getElementById('sliderStart'), en = document.getElementById('sliderEnd');
+  const maxIdx = Math.max(0, uniqueCloseDates.length-1);
+  s.min=0; s.max=maxIdx; s.value=0;
+  en.min=0; en.max=maxIdx; en.value=maxIdx;
+
+  const months = [...new Set(uniqueCloseDates.map(d=>d.slice(0,7)))];
+  const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const sel = document.getElementById('monthSelect');
+  sel.innerHTML = '<option value="">Jump to month…</option>' + months.map(m=>{
+    const [y,mo]=m.split('-'); return `<option value="${m}">${monthNames[parseInt(mo,10)-1]} ${y}</option>`;
+  }).join('');
+
+  if(!pnlListenersBound){
+    pnlListenersBound = true;
+    s.addEventListener('input', ()=>{ if(parseInt(s.value)>parseInt(en.value)) s.value=en.value; setPreset(null); applyPnlFilter(); });
+    en.addEventListener('input', ()=>{ if(parseInt(en.value)<parseInt(s.value)) en.value=s.value; setPreset(null); applyPnlFilter(); });
+    document.querySelectorAll('#filterPresets .preset-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const p = btn.dataset.preset;
+        const maxI = parseInt(document.getElementById('sliderEnd').max);
+        if(p==='all'){ document.getElementById('sliderStart').value=0; document.getElementById('sliderEnd').value=maxI; }
+        else {
+          // n calendar days back from the most recent close date, not n unique close-dates —
+          // trades don't close every day, so counting by index would silently stretch the window.
+          const n = parseInt(p);
+          const lastDate = uniqueCloseDates[maxI];
+          const cutoff = new Date(lastDate+'T00:00:00Z');
+          cutoff.setUTCDate(cutoff.getUTCDate() - n + 1);
+          const cutoffStr = cutoff.toISOString().slice(0,10);
+          let startIdx = uniqueCloseDates.findIndex(d=>d>=cutoffStr);
+          if(startIdx===-1) startIdx = 0;
+          document.getElementById('sliderStart').value = startIdx;
+          document.getElementById('sliderEnd').value = maxI;
+        }
+        document.getElementById('monthSelect').value='';
+        setPreset(btn); applyPnlFilter();
+      });
+    });
+    document.getElementById('monthSelect').addEventListener('change', e=>{
+      const m = e.target.value; if(!m) return;
+      const idxs = uniqueCloseDates.map((d,i)=>({d,i})).filter(x=>x.d.startsWith(m)).map(x=>x.i);
+      if(idxs.length){ document.getElementById('sliderStart').value=Math.min(...idxs); document.getElementById('sliderEnd').value=Math.max(...idxs); setPreset(null); applyPnlFilter(); }
+    });
+    document.getElementById('bucketToggle').addEventListener('click', e=>{
+      const btn = e.target.closest('button[data-bucket]'); if(!btn) return;
+      selectedBucket = btn.dataset.bucket; selectedSubfilter='all';
+      document.getElementById('bucketToggle').querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn));
+      applyPnlFilter();
+    });
+    document.querySelectorAll('#tradeTable th[data-k]').forEach(th=>{
+      th.addEventListener('click', ()=>{
+        const k = th.dataset.k;
+        tradeSortDir = (tradeSortKey===k) ? -tradeSortDir : 1;
+        tradeSortKey = k;
+        renderTradeTable(lastFiltered);
+      });
+    });
+  }
+  setPreset(document.querySelector('#filterPresets .preset-btn[data-preset="all"]'));
+  applyPnlFilter();
+}
+function setPreset(btn){
+  document.querySelectorAll('#filterPresets .preset-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+}
+
+function renderSubfilterRow(){
+  const row = document.getElementById('subfilterRow');
+  if(selectedBucket==='all'){ row.innerHTML=''; return; }
+  let chips;
+  if(selectedBucket==='equity'){
+    chips = [['all','All'],['stock','Stock'],['aw','CSP'],['ov','CC']];
+  } else {
+    const tickers = [...new Set(bucketEpisodes(selectedBucket).map(e=>e.tick))].sort();
+    chips = [['all','All'], ...tickers.map(t=>[t,t])];
+  }
+  row.innerHTML = chips.map(([v,label])=>
+    `<button data-sub="${v}" class="${selectedSubfilter===v?'active':''}">${label}</button>`).join('');
+  row.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{ selectedSubfilter=b.dataset.sub; applyPnlFilter(); });
+  });
+}
+
+function applyPnlFilter(){
+  renderSubfilterRow();
+  const startIdx = parseInt(document.getElementById('sliderStart').value);
+  const endIdx = parseInt(document.getElementById('sliderEnd').value);
+  const startDate = uniqueCloseDates[startIdx], endDate = uniqueCloseDates[endIdx];
+  document.getElementById('filterRangeDisplay').textContent = fmtDateShort(startDate)+'  →  '+fmtDateShort(endDate);
+  document.getElementById('filterRangeSub').textContent = `${endIdx-startIdx+1} of ${uniqueCloseDates.length} close-dates selected`;
+  const maxI = parseInt(document.getElementById('sliderEnd').max)||1;
+  document.getElementById('sliderTrackFill').style.left = (startIdx/maxI*100)+'%';
+  document.getElementById('sliderTrackFill').style.width = Math.max(0,(endIdx-startIdx)/maxI*100)+'%';
+
+  let pool = bucketEpisodes(selectedBucket);
+  if(selectedBucket==='equity' && selectedSubfilter!=='all'){
+    pool = pool.filter(e=>e.sleeve===selectedSubfilter);
+  } else if(selectedBucket!=='equity' && selectedBucket!=='all' && selectedSubfilter!=='all'){
+    pool = pool.filter(e=>e.tick===selectedSubfilter);
+  }
+  const closed = pool.filter(e=>!e.still_open && e.end_date>=startDate && e.end_date<=endDate);
+  const open = pool.filter(e=>e.still_open);
+  lastFiltered = {closed, open};
+
+  renderPnlStrip(closed, open);
+  renderEquityCurve(closed);
+  renderTradeTable(lastFiltered);
+}
+
+function unrealizedForBucket(bucket, subfilter){
+  const sleeves = bucket==='all' ? null : BUCKET_SLEEVES[bucket];
+  let optUnreal = getPositions()
+    .filter(p=> sleeves ? sleeves.includes(p.sleeve) : true)
+    .filter(p=> bucket==='equity' ? true : (subfilter==='all' || bucket==='all' || p.tick===subfilter))
+    .filter(p=> bucket!=='equity' || subfilter==='all' || p.sleeve===subfilter)
+    .reduce((a,p)=>a+(p.cur-p.entry),0);
+  let stockUnreal = 0;
+  if(bucket==='equity' || bucket==='all'){
+    stockUnreal = allEquityRows.filter(r=>acctMatches(r.acct))
+      .filter(r=> bucket!=='equity' || subfilter==='all' || subfilter==='stock')
+      .reduce((a,r)=>a+(r.unreal||0),0);
+  }
+  return optUnreal + stockUnreal;
+}
+
+let lastFiltered = {closed:[], open:[]};
+let tradeSortKey='end_date', tradeSortDir=-1;
+
+function renderPnlStrip(closed, open){
+  const realized = closed.reduce((a,e)=>a+e.net_cash,0);
+  const wins = closed.filter(e=>e.net_cash>0).length;
+  const winRate = closed.length ? wins/closed.length : 0;
+  const unreal = unrealizedForBucket(selectedBucket, selectedSubfilter);
+  document.getElementById('pnlStrip').innerHTML = `
+    <div class="stat">
+      <div class="eyebrow">Realized P&amp;L</div>
+      <div class="val ${realized<0?'warn':''}">${realized>=0?'+':'-'}$${Math.abs(realized).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+      <div class="foot">${closed.length} closed trade${closed.length===1?'':'s'} in range</div>
+    </div>
+    <div class="stat">
+      <div class="eyebrow">Win Rate</div>
+      <div class="val">${(winRate*100).toFixed(0)}%</div>
+      <div class="foot">${wins}W / ${closed.length-wins}L</div>
+    </div>
+    <div class="stat">
+      <div class="eyebrow">Unrealized P&amp;L</div>
+      <div class="val ${unreal<0?'warn':''}">${unreal>=0?'+':'-'}$${Math.abs(unreal).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+      <div class="foot">Current open positions, from holdings snapshot</div>
+    </div>
+    <div class="stat">
+      <div class="eyebrow">Open Positions</div>
+      <div class="val">${open.length}</div>
+      <div class="foot">In ${BUCKET_LABELS[selectedBucket]} scope</div>
+    </div>`;
+}
+
+function renderEquityCurve(closed){
+  const sorted = [...closed].sort((a,b)=> a.end_date===b.end_date ? a.end_order-b.end_order : (a.end_date<b.end_date?-1:1));
+  let cum=0;
+  const points = sorted.map(e=>{ cum+=e.net_cash; return cum; });
+  const svg = document.getElementById('equitySvg');
+  const w=1000,h=220,pad=10;
+  if(points.length<1){ svg.innerHTML = '<text x="500" y="110" text-anchor="middle" fill="#666c7a" font-size="13" font-family="Inter">No closed trades in range</text>'; return; }
+  const minV=Math.min(0,...points), maxV=Math.max(0,...points);
+  const range=(maxV-minV)||1;
+  const xStep=(w-2*pad)/Math.max(1,points.length-1);
+  const yOf = v => h-pad-((v-minV)/range)*(h-2*pad);
+  const path = points.map((v,i)=>(i===0?'M':'L')+(pad+i*xStep).toFixed(1)+','+yOf(v).toFixed(1)).join(' ');
+  const zeroY = yOf(0);
+  const areaPath = path+' L'+(pad+(points.length-1)*xStep).toFixed(1)+','+zeroY.toFixed(1)+' L'+pad+','+zeroY.toFixed(1)+' Z';
+  svg.innerHTML =
+    `<line x1="${pad}" y1="${zeroY.toFixed(1)}" x2="${w-pad}" y2="${zeroY.toFixed(1)}" stroke="#2a2e3a" stroke-width="1"/>`+
+    `<path d="${areaPath}" fill="rgba(78,158,150,.14)" stroke="none"/>`+
+    `<path d="${path}" fill="none" stroke="#4e9e96" stroke-width="2"/>`;
+}
+
+function renderTradeTable({closed, open}){
+  const rows = [...closed, ...open];
+  rows.sort((a,b)=>{
+    let av=a[tradeSortKey], bv=b[tradeSortKey];
+    if(tradeSortKey==='net_cash'){ av=a.net_cash; bv=b.net_cash; }
+    if(typeof av==='string') return tradeSortDir*String(av||'').localeCompare(String(bv||''));
+    return tradeSortDir*((av||0)-(bv||0));
+  });
+  const sleevePill = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','CSP'],ov:['ov','CC'],naked:['naked','Other'],stock:['n','Stock']};
+  document.getElementById('tradeTable').querySelector('tbody').innerHTML = rows.map(e=>{
+    const [cls,label] = sleevePill[e.sleeve] || ['n', e.sleeve];
+    const pl = e.net_cash;
+    return `<tr class="${e.still_open?'trade-open':''}">
+      <td>${e.still_open?'open':e.end_date}</td>
+      <td style="color:var(--muted);font-size:11px;">${e.acct==='Core Margin'?'CM':'OM'}</td>
+      <td style="font-family:'Inter';font-weight:600;color:var(--text);">${e.tick}</td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td>${e.legsLabel||'—'}</td>
+      <td>${e.initial_qty}</td>
+      <td>${e.still_open ? '—' : (pl>=0?'+':'-')+'$'+Math.abs(pl).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+      <td>${e.still_open ? '<span class="badge n">Open</span>' : `<span class="badge ${pl>=0?'g':'r'}">${pl>=0?'Win':'Loss'}</span>`}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ---- file handling ----
+document.getElementById('holdingsFile').addEventListener('change', function(e){
+  const f=e.target.files[0]; if(!f) return;
+  Papa.parse(f,{header:true, complete: res=>{
+    const {spreads, equityRows} = processHoldings(res.data);
+    positions = spreads;
+    allEquityRows = equityRows;
+    document.getElementById('asOfLabel').textContent = asOfDate.toISOString().slice(0,10);
+    document.getElementById('uploadStatus').textContent = `Loaded ${res.data.length} holdings rows → ${spreads.length} positions computed (XEQT/VEQT/TBIL/CASH excluded)`;
+    document.getElementById('dashboardBody').style.display='block';
+    document.getElementById('emptyState').style.display='none';
+    holdingsLoaded = true;
+    renderAll();
+    tryBuildTrades();
+  }});
+});
+document.getElementById('activitiesFile').addEventListener('change', function(e){
+  const f=e.target.files[0]; if(!f) return;
+  Papa.parse(f,{header:true, complete: res=>{
+    activityRows = res.data.filter(r=>r.effective_at && /^\d{4}-\d{2}-\d{2}T/.test(r.effective_at));
+    activitiesLoaded = true;
+    document.getElementById('uploadStatus').textContent = `Loaded ${activityRows.length} activity rows`;
+    tryBuildTrades();
+  }});
+});
+document.getElementById('finnhubKey').addEventListener('change', saveFinnhubKey);
+document.getElementById('finnhubKey').addEventListener('blur', saveFinnhubKey);
+document.getElementById('acctToggle').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-acct]');
+  if(!btn) return;
+  selectedAccount = btn.dataset.acct;
+  this.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn));
+  renderAll();
+  if(tradeEpisodes.length) applyPnlFilter();
+});
+
+loadSaved().then(renderTopStrip);
+</script>
+</body>
+</html>
