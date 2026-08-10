@@ -151,6 +151,12 @@
       <label>Activities CSV<input type="file" id="activitiesFile" accept=".csv"></label>
       <span class="upload-status" id="uploadStatus">Waiting for holdings-report CSV…</span>
     </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button class="btn" id="linkHoldingsBtn" onclick="linkFile('holdings')" style="display:none;">🔗 Link holdings file</button>
+      <button class="btn" id="linkActivitiesBtn" onclick="linkFile('activities')" style="display:none;">🔗 Link activities file</button>
+      <button class="btn primary" id="refreshLinkedBtn" onclick="refreshLinkedFiles()" style="display:none;">🔄 Refresh linked files + prices</button>
+    </div>
+    <div class="desc" style="margin-top:6px;font-size:11px;" id="linkedFilesNote">Link once — after that, save over the same two files each day (same name, same folder) and hit Refresh. No file picker, no re-upload. Chrome/Edge only; on Firefox/Safari use the pickers above instead.</div>
     <div class="acctform" style="margin-top:14px;">
       <div><label>OM Max Buying Power (CAD)</label><input type="number" id="omMaxBP" placeholder="233182"></div>
       <div><label>CM Max Buying Power (CAD)</label><input type="number" id="cmMaxBP" placeholder="223779"></div>
@@ -1132,30 +1138,105 @@ function renderTradeTable({closed, open}){
 }
 
 // ---- file handling ----
+function applyHoldingsRows(rows){
+  const {spreads, equityRows} = processHoldings(rows);
+  positions = spreads;
+  allEquityRows = equityRows;
+  document.getElementById('asOfLabel').textContent = asOfDate.toISOString().slice(0,10);
+  document.getElementById('uploadStatus').textContent = `Loaded ${rows.length} holdings rows → ${spreads.length} positions computed (XEQT/VEQT/TBIL/CASH excluded)`;
+  document.getElementById('dashboardBody').style.display='block';
+  document.getElementById('emptyState').style.display='none';
+  holdingsLoaded = true;
+  renderAll();
+  tryBuildTrades();
+}
+function applyActivitiesRows(rows){
+  activityRows = rows.filter(r=>r.effective_at && /^\d{4}-\d{2}-\d{2}T/.test(r.effective_at));
+  activitiesLoaded = true;
+  document.getElementById('uploadStatus').textContent = `Loaded ${activityRows.length} activity rows`;
+  tryBuildTrades();
+}
 document.getElementById('holdingsFile').addEventListener('change', function(e){
   const f=e.target.files[0]; if(!f) return;
-  Papa.parse(f,{header:true, complete: res=>{
-    const {spreads, equityRows} = processHoldings(res.data);
-    positions = spreads;
-    allEquityRows = equityRows;
-    document.getElementById('asOfLabel').textContent = asOfDate.toISOString().slice(0,10);
-    document.getElementById('uploadStatus').textContent = `Loaded ${res.data.length} holdings rows → ${spreads.length} positions computed (XEQT/VEQT/TBIL/CASH excluded)`;
-    document.getElementById('dashboardBody').style.display='block';
-    document.getElementById('emptyState').style.display='none';
-    holdingsLoaded = true;
-    renderAll();
-    tryBuildTrades();
-  }});
+  Papa.parse(f,{header:true, complete: res=>applyHoldingsRows(res.data)});
 });
 document.getElementById('activitiesFile').addEventListener('change', function(e){
   const f=e.target.files[0]; if(!f) return;
-  Papa.parse(f,{header:true, complete: res=>{
-    activityRows = res.data.filter(r=>r.effective_at && /^\d{4}-\d{2}-\d{2}T/.test(r.effective_at));
-    activitiesLoaded = true;
-    document.getElementById('uploadStatus').textContent = `Loaded ${activityRows.length} activity rows`;
-    tryBuildTrades();
-  }});
+  Papa.parse(f,{header:true, complete: res=>applyActivitiesRows(res.data)});
 });
+
+// ---- linked files (File System Access API) — remember a file on disk, no re-picking each visit ----
+const FS_API_SUPPORTED = 'showOpenFilePicker' in window;
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open('marginDashFS', 1);
+    req.onupgradeneeded = ()=> req.result.createObjectStore('handles');
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbSet(key, val){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readwrite');
+    tx.objectStore('handles').put(val, key);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function readHandleAsRows(handle){
+  let perm = await handle.queryPermission({mode:'read'});
+  if(perm!=='granted') perm = await handle.requestPermission({mode:'read'});
+  if(perm!=='granted') return null;
+  const file = await handle.getFile();
+  const text = await file.text();
+  return new Promise(resolve=>{ Papa.parse(text, {header:true, complete: res=>resolve(res.data)}); });
+}
+async function linkFile(kind){
+  try{
+    const [handle] = await window.showOpenFilePicker({
+      types:[{description:'CSV files', accept:{'text/csv':['.csv']}}]
+    });
+    await idbSet(kind+'-handle', handle);
+    const rows = await readHandleAsRows(handle);
+    if(rows) (kind==='holdings' ? applyHoldingsRows : applyActivitiesRows)(rows);
+    await updateLinkedUI();
+  }catch(e){ /* picker cancelled — not an error */ }
+}
+async function refreshLinkedFiles(){
+  const btn = document.getElementById('refreshLinkedBtn');
+  btn.disabled = true; const origTxt = btn.textContent; btn.textContent = '🔄 Refreshing…';
+  const hHandle = await idbGet('holdings-handle');
+  const aHandle = await idbGet('activities-handle');
+  if(hHandle){ const rows = await readHandleAsRows(hHandle); if(rows) applyHoldingsRows(rows); }
+  if(aHandle){ const rows = await readHandleAsRows(aHandle); if(rows) applyActivitiesRows(rows); }
+  await fetchClosingPrices();
+  btn.disabled = false; btn.textContent = origTxt;
+  document.getElementById('uploadStatus').textContent = 'Refreshed from linked files + prices at '+new Date().toLocaleTimeString();
+}
+async function updateLinkedUI(){
+  if(!FS_API_SUPPORTED) return;
+  const h = await idbGet('holdings-handle');
+  const a = await idbGet('activities-handle');
+  document.getElementById('linkHoldingsBtn').textContent = h ? '🔗 Holdings file linked ✓' : '🔗 Link holdings file';
+  document.getElementById('linkActivitiesBtn').textContent = a ? '🔗 Activities file linked ✓' : '🔗 Link activities file';
+  document.getElementById('refreshLinkedBtn').style.display = (h && a) ? 'inline-block' : 'none';
+}
+if(FS_API_SUPPORTED){
+  document.getElementById('linkHoldingsBtn').style.display='inline-block';
+  document.getElementById('linkActivitiesBtn').style.display='inline-block';
+  updateLinkedUI();
+}
+
 document.getElementById('finnhubKey').addEventListener('change', saveFinnhubKey);
 document.getElementById('finnhubKey').addEventListener('blur', saveFinnhubKey);
 document.getElementById('acctToggle').addEventListener('click', function(e){
