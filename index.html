@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Margin Playbook Dashboard v7 — Part 1</title>
+<title>Margin Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -212,7 +212,7 @@
         <textarea class="bulkpaste" id="bulkPaste" placeholder="Paste one per line, any of these formats work:&#10;AAPL 352.10&#10;SPY, 718.40&#10;QQQ: 690.15"></textarea>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <button class="btn primary" onclick="parseBulkPaste()">Apply pasted prices</button>
-          <button class="btn" onclick="fetchClosingPrices()" id="autoFetchBtn">⟳ Auto-fetch (cached daily)</button>
+          <button class="btn" onclick="fetchClosingPrices()" id="autoFetchBtn">⟳ Auto-fetch (refetches every click)</button>
           <span class="upload-status" id="fetchStatus"></span>
         </div>
       </div>
@@ -713,16 +713,9 @@ async function fetchFromStooq(t){
   throw new Error('no price');
 }
 async function fetchClosingPrices(){
-  const cached = storageGet('closes-cache');
-  if(cached){
-    const v = JSON.parse(cached.value);
-    if(v.date===todayStr() && Object.keys(v.closes).length>0){
-      closes = v.closes;
-      document.getElementById('fetchStatus').textContent = "Using today's cached prices (no new fetch)";
-      renderAll();
-      return;
-    }
-  }
+  // Page load already restores today's cached prices for free via loadSaved() — so this button's
+  // whole job is to get a FRESH fetch when clicked, intraday moves and all. It used to short-circuit
+  // here if a same-day cache existed, which made it a no-op for the rest of the day after first use.
   const btn = document.getElementById('autoFetchBtn');
   const status = document.getElementById('fetchStatus');
   const tickers = [...new Set(positions.map(p=>p.tick))];
@@ -747,7 +740,7 @@ async function fetchClosingPrices(){
   status.textContent = failed.length
     ? `Fetched ${ok}/${tickers.length}${srcSummary?' ('+srcSummary+')':''}. Couldn't reach: ${failed.join(', ')} — paste those manually above.`
     : `Fetched and cached all ${ok} tickers (${srcSummary})`;
-  btn.disabled=false; btn.textContent="⟳ Auto-fetch (cached daily)";
+  btn.disabled=false; btn.textContent="⟳ Auto-fetch (refetches every click)";
   renderAll();
 }
 
