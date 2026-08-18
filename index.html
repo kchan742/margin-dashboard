@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Margin Dashboard</title>
+<title>Margin Playbook Dashboard v7 — Part 1</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -71,6 +71,7 @@
   .pill.aw{background:rgba(155,131,176,.16);color:var(--violet);}
   .pill.ov{background:rgba(163,169,183,.16);color:var(--text2);}
   .pill.naked{background:rgba(196,85,77,.16);color:var(--red);}
+  .pill.leap{background:rgba(217,162,74,.16);color:var(--amber);}
   .cpinput{width:64px;background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:3px 5px;border-radius:4px;}
   .badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;font-family:'Inter';}
   .badge.g{background:rgba(95,160,131,.18);color:var(--green);}
@@ -219,8 +220,14 @@
 
       <div class="panel">
         <h2>Sleeve Allocation</h2>
-        <div class="desc">Share of deployed spread BP vs. playbook target</div>
+        <div class="desc">Share of deployed spread BP vs. playbook target — index/opportunistic/hedge only. LEAPs are funded from spread premium rather than defined-risk BP, so they're tracked separately below rather than folded into these targets.</div>
         <div id="sleeveBands"></div>
+      </div>
+
+      <div class="panel">
+        <h2>LEAPs — Long-Term, Premium-Funded</h2>
+        <div class="desc">Single-name long calls/puts with DTE &gt; 365 days — held separately from the risk-managed sleeves above. No target band here since these are directional bets, not defined-risk spread capital.</div>
+        <div id="leapSummary"></div>
       </div>
     </div>
   </div>
@@ -258,6 +265,7 @@
       <button data-bucket="idx">Index</button>
       <button data-bucket="opp">Opportunistic</button>
       <button data-bucket="hdg">Hedge</button>
+      <button data-bucket="leap">LEAPs</button>
       <button data-bucket="naked">Other</button>
     </div>
     <div id="subfilterRow" class="subfilter-row"></div>
@@ -266,8 +274,11 @@
 
     <div class="panel" style="background:var(--panel2);">
       <h2 style="font-size:13px;">Cumulative Realized P&amp;L</h2>
-      <div class="desc">Closed trades only, in the current filter scope, ordered by close date</div>
-      <svg id="equitySvg" viewBox="0 0 1000 220" style="width:100%;height:220px;display:block;"></svg>
+      <div class="desc">Closed trades only, in the current filter scope, ordered by close date. Hover to inspect any point.</div>
+      <div id="equityChartWrap" style="position:relative;">
+        <svg id="equitySvg" viewBox="0 0 1000 220" style="width:100%;height:220px;display:block;cursor:crosshair;"></svg>
+        <div id="equityTooltip" style="display:none;position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--teal);border-radius:6px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5;white-space:nowrap;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.4);"></div>
+      </div>
     </div>
 
     <div class="panel" style="background:var(--panel2);">
@@ -293,9 +304,13 @@
 // ---- config: edit these lists as your intent changes ----
 const ASSIGNMENT_WILLING_TICKERS = ['PLTR','COIN'];
 const INDEX_TICKERS = ['SPY','QQQ','IWM'];
+// Long-dated single-name options (>1yr out) funded by spread premium — tracked as their own
+// sleeve, not folded into opportunistic/index/hedge. Structural rule (DTE-based), not a ticker
+// allowlist, so it picks up any future LEAP regardless of underlying.
+const LEAP_DTE_THRESHOLD = 365;
 // Excluded from every calc: long-term buy-and-hold ETFs and cash-equivalents. Never sold, not part of the options playbook.
 const EXCLUDED_TICKERS = ['XEQT','VEQT','TBIL','CASH.TO','CASH'];
-const sleeveLabel = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','Assign-Willing'],ov:['ov','Overlay'],naked:['naked','Naked (review)']};
+const sleeveLabel = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','Assign-Willing'],ov:['ov','Overlay'],leap:['leap','LEAPs'],naked:['naked','Naked (review)']};
 
 let positions = [];
 let allEquityRows = [];
@@ -456,7 +471,11 @@ function processHoldings(rows){
   });
   spreads.forEach(s=>{ s.dte = daysBetween(asOfDate, s.exp); });
   spreads.forEach(s=>{
-    if(INDEX_TICKERS.includes(s.tick)){
+    if(s.dte > LEAP_DTE_THRESHOLD){
+      s.sleeve = 'leap';
+      const strikeTxt = s.legs.split(' ')[0]; // strip the "(long, unhedged)"/"(naked short)" suffix
+      s.legs = `${strikeTxt} (LEAP)`;
+    } else if(INDEX_TICKERS.includes(s.tick)){
       s.sleeve = s.debit ? 'hdg' : 'idx';
     } else if(s.naked==='short' && ASSIGNMENT_WILLING_TICKERS.includes(s.tick)){
       s.sleeve = 'aw';
@@ -519,6 +538,7 @@ function computeDist(p){
 }
 function statusOf(p, d){
   if(p.sleeve==='naked') return {txt:'Undefined risk', cls:'r'};
+  if(p.sleeve==='leap') return {txt:'Long-term hold', cls:'n'};
   if(p.sleeve==='hdg') return p.dte<35 ? {txt:'Roll overdue',cls:'r'} : (p.dte<=45 ? {txt:'Roll window',cls:'a'} : {txt:'Healthy',cls:'g'});
   if(p.sleeve==='aw') return {txt:'Assignment-willing', cls:d.distCls==='r'?'a':'n'};
   if(p.sleeve==='ov') return {txt:'Overlay', cls:'n'};
@@ -658,8 +678,21 @@ function renderSleeveBands(){
     </div>`;
   }).join('') + `<div class="band-note">Computed from BP required across ${getPositions().filter(p=>p.bp!=null).length} priced spreads (naked/unpriced legs excluded).</div>`;
 }
+function renderLeapSummary(){
+  const leaps = getPositions().filter(p=>p.sleeve==='leap');
+  const el = document.getElementById('leapSummary');
+  if(!leaps.length){ el.innerHTML = '<div class="band-note">No LEAP positions currently open.</div>'; return; }
+  const totalCost = leaps.reduce((a,p)=>a+p.entry,0);
+  const totalCur = leaps.reduce((a,p)=>a+p.cur,0);
+  const pnl = totalCur - totalCost;
+  el.innerHTML = leaps.map(p=>{
+    const upl = p.cur - p.entry;
+    return `<div class="aw-row"><div><b class="mono" style="color:var(--amber);">${p.tick}</b> ${p.legs} × ${p.ctr} · DTE ${p.dte} · ${p.acct}</div>
+      <div class="badge ${upl>=0?'g':'r'}">${upl>=0?'+':'-'}$${Math.abs(upl).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>`;
+  }).join('') + `<div class="band-note" style="margin-top:8px;">Total cost basis: $${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})} · Current value: $${totalCur.toLocaleString(undefined,{maximumFractionDigits:0})} · Unrealized: ${pnl>=0?'+':'-'}$${Math.abs(pnl).toLocaleString(undefined,{maximumFractionDigits:0})}</div>`;
+}
 function renderAll(){
-  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands();
+  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary();
 }
 
 // ---- closing prices ----
@@ -820,7 +853,10 @@ function buildLegEpisodes(rawRows){
     if(m){
       e.is_option = true; e.cp = m[5]; e.strike = parseInt(m[6])/1000;
       e.exp = new Date(Date.UTC(2000+parseInt(m[2]), parseInt(m[3])-1, parseInt(m[4])));
-    } else { e.is_option = false; e.cp=null; e.strike=null; e.exp=null; }
+      // duration at OPEN, not remaining DTE — a closed trade's "DTE today" is meaningless, but
+      // "was this opened as a >1yr LEAP" is a fixed fact about the trade regardless of when it closed.
+      e.durationDays = daysBetween(new Date(e.start_date+'T00:00:00Z'), e.exp);
+    } else { e.is_option = false; e.cp=null; e.strike=null; e.exp=null; e.durationDays=null; }
   });
   return episodes;
 }
@@ -844,7 +880,9 @@ function classifyEpisodes(episodes, equityRowsCurrent){
       for(let i=0;i<n;i++){
         const L=longs[i], S=shorts[i];
         const creditOpen = (S.first_unit_price||0) > (L.first_unit_price||0);
-        const sleeve = INDEX_TICKERS.includes(L.tick) ? (creditOpen?'idx':'hdg') : 'opp';
+        let sleeve;
+        if(L.durationDays > LEAP_DTE_THRESHOLD) sleeve = 'leap';
+        else sleeve = INDEX_TICKERS.includes(L.tick) ? (creditOpen?'idx':'hdg') : 'opp';
         L.sleeve = sleeve; S.sleeve = sleeve;
         const label = `${Math.min(L.strike,S.strike)}/${Math.max(L.strike,S.strike)}${S.cp}`;
         L.legsLabel = label; S.legsLabel = label;
@@ -856,6 +894,9 @@ function classifyEpisodes(episodes, equityRowsCurrent){
   episodes.forEach(e=>{
     if(e.sleeve) return;
     if(!e.is_option){ e.sleeve='stock'; e.legsLabel='shares'; return; }
+    if(e.durationDays > LEAP_DTE_THRESHOLD){
+      e.sleeve='leap'; e.legsLabel = `${e.strike}${e.cp} (LEAP, ${e.orientation})`; return;
+    }
     if(e.orientation==='short' && e.cp==='P' && ASSIGNMENT_WILLING_TICKERS.includes(e.tick)){
       e.sleeve='aw'; e.legsLabel = `${e.strike}P (CSP)`; return;
     }
@@ -872,8 +913,8 @@ function classifyEpisodes(episodes, equityRowsCurrent){
   return episodes;
 }
 
-const BUCKET_SLEEVES = {equity:['stock','aw','ov'], idx:['idx'], opp:['opp'], hdg:['hdg'], naked:['naked']};
-const BUCKET_LABELS = {all:'All', equity:'Equity', idx:'Index', opp:'Opportunistic', hdg:'Hedge', naked:'Other'};
+const BUCKET_SLEEVES = {equity:['stock','aw','ov'], idx:['idx'], opp:['opp'], hdg:['hdg'], leap:['leap'], naked:['naked']};
+const BUCKET_LABELS = {all:'All', equity:'Equity', idx:'Index', opp:'Opportunistic', hdg:'Hedge', leap:'LEAPs', naked:'Other'};
 
 // Two legs of the same spread (linked via pairId in classifyEpisodes) get merged into one
 // netted trade row here — a credit spread's short+long legs should show as ONE result, not
@@ -1085,13 +1126,18 @@ function renderPnlStrip(closed, open){
     </div>`;
 }
 
+let equityCurveData = null;
 function renderEquityCurve(closed){
   const sorted = [...closed].sort((a,b)=> a.end_date===b.end_date ? a.end_order-b.end_order : (a.end_date<b.end_date?-1:1));
   let cum=0;
   const points = sorted.map(e=>{ cum+=e.net_cash; return cum; });
   const svg = document.getElementById('equitySvg');
   const w=1000,h=220,pad=10;
-  if(points.length<1){ svg.innerHTML = '<text x="500" y="110" text-anchor="middle" fill="#666c7a" font-size="13" font-family="Inter">No closed trades in range</text>'; return; }
+  if(points.length<1){
+    svg.innerHTML = '<text x="500" y="110" text-anchor="middle" fill="#666c7a" font-size="13" font-family="Inter">No closed trades in range</text>';
+    equityCurveData = null;
+    return;
+  }
   const minV=Math.min(0,...points), maxV=Math.max(0,...points);
   const range=(maxV-minV)||1;
   const xStep=(w-2*pad)/Math.max(1,points.length-1);
@@ -1102,8 +1148,54 @@ function renderEquityCurve(closed){
   svg.innerHTML =
     `<line x1="${pad}" y1="${zeroY.toFixed(1)}" x2="${w-pad}" y2="${zeroY.toFixed(1)}" stroke="#2a2e3a" stroke-width="1"/>`+
     `<path d="${areaPath}" fill="rgba(78,158,150,.14)" stroke="none"/>`+
-    `<path d="${path}" fill="none" stroke="#4e9e96" stroke-width="2"/>`;
+    `<path d="${path}" fill="none" stroke="#4e9e96" stroke-width="2"/>`+
+    `<line id="hoverLine" x1="0" y1="0" x2="0" y2="${h}" stroke="#8a92a5" stroke-width="1" stroke-dasharray="3,3" style="display:none;"/>`+
+    `<circle id="hoverDot" r="4" fill="#4e9e96" stroke="#0d1117" stroke-width="1.5" style="display:none;"/>`;
+  equityCurveData = {sorted, points, w, h, pad, xStep, yOf};
 }
+function chartMouseMove(evt){
+  if(!equityCurveData) return;
+  const {sorted, points, pad, xStep, yOf, w} = equityCurveData;
+  const svg = document.getElementById('equitySvg');
+  const rect = svg.getBoundingClientRect();
+  if(rect.width===0) return;
+  const scaleX = w / rect.width;
+  const mouseX = (evt.clientX - rect.left) * scaleX;
+  let idx = Math.round((mouseX - pad) / xStep);
+  idx = Math.max(0, Math.min(points.length-1, idx));
+  const x = pad + idx*xStep;
+  const y = yOf(points[idx]);
+  const hoverLine = document.getElementById('hoverLine');
+  const hoverDot = document.getElementById('hoverDot');
+  if(hoverLine){ hoverLine.setAttribute('x1',x); hoverLine.setAttribute('x2',x); hoverLine.style.display='block'; }
+  if(hoverDot){ hoverDot.setAttribute('cx',x); hoverDot.setAttribute('cy',y); hoverDot.style.display='block'; }
+
+  const trade = sorted[idx];
+  const cum = points[idx];
+  const tip = document.getElementById('equityTooltip');
+  tip.innerHTML = `<div style="font-weight:600;color:var(--text);margin-bottom:2px;">${trade.end_date}</div>`+
+    `<div style="color:var(--muted);">${trade.tick}${trade.legsLabel?' · '+trade.legsLabel:''}</div>`+
+    `<div style="margin-top:4px;">Trade: <b style="color:${trade.net_cash>=0?'var(--green)':'var(--red)'};">${trade.net_cash>=0?'+':'-'}$${Math.abs(trade.net_cash).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`+
+    `<div>Cumulative: <b style="color:${cum>=0?'var(--green)':'var(--red)'};">${cum>=0?'+':'-'}$${Math.abs(cum).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`;
+  const container = document.getElementById('equityChartWrap');
+  const containerRect = container.getBoundingClientRect();
+  let left = evt.clientX - containerRect.left + 14;
+  const top = evt.clientY - containerRect.top - 10;
+  if(left > containerRect.width - 190) left = evt.clientX - containerRect.left - 200;
+  tip.style.left = Math.max(0,left)+'px';
+  tip.style.top = Math.max(0,top)+'px';
+  tip.style.display = 'block';
+}
+function chartMouseLeave(){
+  const tip = document.getElementById('equityTooltip');
+  if(tip) tip.style.display='none';
+  const hoverLine = document.getElementById('hoverLine');
+  const hoverDot = document.getElementById('hoverDot');
+  if(hoverLine) hoverLine.style.display='none';
+  if(hoverDot) hoverDot.style.display='none';
+}
+document.getElementById('equitySvg').addEventListener('mousemove', chartMouseMove);
+document.getElementById('equitySvg').addEventListener('mouseleave', chartMouseLeave);
 
 function renderTradeTable({closed, open}){
   const rows = [...closed, ...open];
@@ -1113,7 +1205,7 @@ function renderTradeTable({closed, open}){
     if(typeof av==='string') return tradeSortDir*String(av||'').localeCompare(String(bv||''));
     return tradeSortDir*((av||0)-(bv||0));
   });
-  const sleevePill = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','CSP'],ov:['ov','CC'],naked:['naked','Other'],stock:['n','Stock']};
+  const sleevePill = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','CSP'],ov:['ov','CC'],leap:['leap','LEAP'],naked:['naked','Other'],stock:['n','Stock']};
   document.getElementById('tradeTable').querySelector('tbody').innerHTML = rows.map(e=>{
     const [cls,label] = sleevePill[e.sleeve] || ['n', e.sleeve];
     const pl = e.net_cash;
