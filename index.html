@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Margin Playbook Dashboard v7 — Part 1</title>
+<title>Margin Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -806,8 +806,9 @@ function normalizeActivityRow(r, idx){
   }
   const base = (r['underlying symbol']||symRaw.split(' ')[0]||'').trim();
   const acctName = ACCOUNT_ID_TO_NAME[r.account_id] || r.account_id;
-  const ts = Date.parse(r.effective_at);
-  const dateOnly = (r.effective_at||'').slice(0,10);
+  const dateOnly = (r.effective_date||'').trim();
+  const timeOnly = (r.effective_time||'00:00:00').trim();
+  const ts = Date.parse(dateOnly+'T'+timeOnly);
   return {orig_order:idx, ts, date:dateOnly, acct:acctName, symbol:symRaw, tick:base, qty_signed, net_cash, unit_price};
 }
 
@@ -1236,7 +1237,7 @@ function applyHoldingsRows(rows){
   tryBuildTrades();
 }
 function applyActivitiesRows(rows){
-  activityRows = rows.filter(r=>r.effective_at && /^\d{4}-\d{2}-\d{2}T/.test(r.effective_at));
+  activityRows = rows.filter(r=>r.effective_date && /^\d{4}-\d{2}-\d{2}$/.test(r.effective_date));
   activitiesLoaded = true;
   document.getElementById('uploadStatus').textContent = `Loaded ${activityRows.length} activity rows`;
   tryBuildTrades();
