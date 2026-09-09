@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Margin Dashboard</title>
+<title>Margin Playbook Dashboard v7 — Part 1</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -844,6 +844,8 @@ function buildLegEpisodes(rawRows){
       pos += q;
       cur.end_date = row.date;
       cur.end_order = row.ts;
+      cur.cur_qty = Math.abs(pos); // running size — matters when a position scales via adds/trims,
+                                    // unlike initial_qty which only ever reflects the first fill
       if(Math.abs(pos) < 1e-9){ cur.still_open=false; episodes.push(cur); cur=null; }
     });
     if(cur!==null){ cur.still_open=true; episodes.push(cur); }
@@ -933,7 +935,7 @@ function mergeIntoTrades(episodes){
     const still_open = a.still_open || b.still_open;
     trades.push({
       acct:a.acct, tick:a.tick, sleeve:a.sleeve, legsLabel:a.legsLabel,
-      initial_qty:a.initial_qty, is_option:true,
+      initial_qty:a.initial_qty, cur_qty:a.cur_qty, is_option:true,
       net_cash: a.net_cash + b.net_cash,
       still_open,
       start_date: a.start_date < b.start_date ? a.start_date : b.start_date,
@@ -1210,13 +1212,15 @@ function renderTradeTable({closed, open}){
   document.getElementById('tradeTable').querySelector('tbody').innerHTML = rows.map(e=>{
     const [cls,label] = sleevePill[e.sleeve] || ['n', e.sleeve];
     const pl = e.net_cash;
+    const ctrDisplay = e.still_open ? (e.cur_qty!=null ? e.cur_qty : e.initial_qty) : e.initial_qty;
+    const ctrNote = (e.still_open && e.cur_qty!=null && e.cur_qty!==e.initial_qty) ? ` <span style="color:var(--muted);">(of ${e.initial_qty})</span>` : '';
     return `<tr class="${e.still_open?'trade-open':''}">
       <td>${e.still_open?'open':e.end_date}</td>
       <td style="color:var(--muted);font-size:11px;">${e.acct==='Core Margin'?'CM':'OM'}</td>
       <td style="font-family:'Inter';font-weight:600;color:var(--text);">${e.tick}</td>
       <td><span class="pill ${cls}">${label}</span></td>
       <td>${e.legsLabel||'—'}</td>
-      <td>${e.initial_qty}</td>
+      <td>${ctrDisplay}${ctrNote}</td>
       <td>${e.still_open ? '—' : (pl>=0?'+':'-')+'$'+Math.abs(pl).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
       <td>${e.still_open ? '<span class="badge n">Open</span>' : `<span class="badge ${pl>=0?'g':'r'}">${pl>=0?'Win':'Loss'}</span>`}</td>
     </tr>`;
