@@ -11,7 +11,7 @@
   :root{
     --bg:#12141a; --panel:#191c24; --panel2:#1f232d; --border:#2a2e3a;
     --text:#e9e7e1; --text2:#a3a9b7; --muted:#666c7a;
-    --red:#c4554d; --amber:#d9a24a; --green:#5fa083; --blue:#6f93b8; --teal:#4e9e96; --clay:#c97b4a; --violet:#9b83b0;
+    --red:#c4554d; --amber:#d9a24a; --green:#5fa083; --blue:#6f93b8; --teal:#4e9e96; --clay:#c97b4a; --violet:#9b83b0; --pink:#c96f9e;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
@@ -72,6 +72,7 @@
   .pill.ov{background:rgba(163,169,183,.16);color:var(--text2);}
   .pill.naked{background:rgba(196,85,77,.16);color:var(--red);}
   .pill.leap{background:rgba(217,162,74,.16);color:var(--amber);}
+  .pill.day{background:rgba(201,111,158,.16);color:var(--pink);}
   .cpinput{width:64px;background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:3px 5px;border-radius:4px;}
   .badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;font-family:'Inter';}
   .badge.g{background:rgba(95,160,131,.18);color:var(--green);}
@@ -229,6 +230,12 @@
         <div class="desc">Single-name long calls/puts with DTE &gt; 365 days — held separately from the risk-managed sleeves above. No target band here since these are directional bets, not defined-risk spread capital.</div>
         <div id="leapSummary"></div>
       </div>
+
+      <div class="panel">
+        <h2>Day Trades</h2>
+        <div class="desc">A day trade is defined by its own lifecycle — opened and closed within the same calendar day — not by option DTE. By definition that means this panel is always empty: a completed same-day round trip can't still be an open position in a holdings snapshot. Realized day trades show up in the P&amp;L panel's Day Trades bucket below; an iron condor there shows as two rows (its call spread and put spread), each already correctly netted.</div>
+        <div id="dayTradeSummary"></div>
+      </div>
     </div>
   </div>
 
@@ -266,6 +273,7 @@
       <button data-bucket="opp">Opportunistic</button>
       <button data-bucket="hdg">Hedge</button>
       <button data-bucket="leap">LEAPs</button>
+      <button data-bucket="day">Day Trades</button>
       <button data-bucket="naked">Other</button>
     </div>
     <div id="subfilterRow" class="subfilter-row"></div>
@@ -308,9 +316,15 @@ const INDEX_TICKERS = ['SPY','QQQ','IWM'];
 // sleeve, not folded into opportunistic/index/hedge. Structural rule (DTE-based), not a ticker
 // allowlist, so it picks up any future LEAP regardless of underlying.
 const LEAP_DTE_THRESHOLD = 365;
+// Day trade = opened AND closed within the same calendar day — this is about the trade's own
+// lifecycle, not the option's DTE. A 0DTE option that's still open isn't a day trade yet (it
+// hasn't been exited); a several-week option that happens to get opened and fully closed in one
+// session IS. Applied across all of history, no ticker list or date cutoff — self-correcting:
+// a spread that was opened weeks ago and only adjusted today won't qualify, since its open date
+// and close date don't match.
 // Excluded from every calc: long-term buy-and-hold ETFs and cash-equivalents. Never sold, not part of the options playbook.
 const EXCLUDED_TICKERS = ['XEQT','VEQT','TBIL','CASH.TO','CASH'];
-const sleeveLabel = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','Assign-Willing'],ov:['ov','Overlay'],leap:['leap','LEAPs'],naked:['naked','Naked (review)']};
+const sleeveLabel = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','Assign-Willing'],ov:['ov','Overlay'],leap:['leap','LEAPs'],day:['day','Day Trade'],naked:['naked','Naked (review)']};
 
 let positions = [];
 let allEquityRows = [];
@@ -539,6 +553,7 @@ function computeDist(p){
 function statusOf(p, d){
   if(p.sleeve==='naked') return {txt:'Undefined risk', cls:'r'};
   if(p.sleeve==='leap') return {txt:'Long-term hold', cls:'n'};
+  if(p.sleeve==='day') return {txt:'Day trade — expires today', cls:'a'};
   if(p.sleeve==='hdg') return p.dte<35 ? {txt:'Roll overdue',cls:'r'} : (p.dte<=45 ? {txt:'Roll window',cls:'a'} : {txt:'Healthy',cls:'g'});
   if(p.sleeve==='aw') return {txt:'Assignment-willing', cls:d.distCls==='r'?'a':'n'};
   if(p.sleeve==='ov') return {txt:'Overlay', cls:'n'};
@@ -691,8 +706,19 @@ function renderLeapSummary(){
       <div class="badge ${upl>=0?'g':'r'}">${upl>=0?'+':'-'}$${Math.abs(upl).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>`;
   }).join('') + `<div class="band-note" style="margin-top:8px;">Total cost basis: $${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})} · Current value: $${totalCur.toLocaleString(undefined,{maximumFractionDigits:0})} · Unrealized: ${pnl>=0?'+':'-'}$${Math.abs(pnl).toLocaleString(undefined,{maximumFractionDigits:0})}</div>`;
 }
+function renderDayTradeSummary(){
+  const dayTrades = getPositions().filter(p=>p.sleeve==='day');
+  const el = document.getElementById('dayTradeSummary');
+  if(!dayTrades.length){ el.innerHTML = '<div class="band-note">No day trades currently open in this holdings snapshot — expected most of the time, since these close same-day. Closed day trades show up in the P&L panel Day Trades bucket below.</div>'; return; }
+  const totalBp = dayTrades.reduce((a,p)=>a+(p.bp||0),0);
+  el.innerHTML = dayTrades.map(p=>{
+    const upl = p.cur - p.entry;
+    return `<div class="aw-row"><div><b class="mono" style="color:var(--pink);">${p.tick}</b> ${p.legs} × ${p.ctr} · DTE ${p.dte} · ${p.acct}</div>
+      <div class="badge ${upl>=0?'g':'r'}">${upl>=0?'+':'-'}$${Math.abs(upl).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>`;
+  }).join('') + `<div class="band-note" style="margin-top:8px;">BP currently deployed today: $${totalBp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>`;
+}
 function renderAll(){
-  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary();
+  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary(); renderDayTradeSummary();
 }
 
 // ---- closing prices ----
@@ -928,7 +954,8 @@ function classifyEpisodes(episodes, equityRowsCurrent){
         const L=longs[i], S=shorts[i];
         const creditOpen = (S.first_unit_price||0) > (L.first_unit_price||0);
         let sleeve;
-        if(L.durationDays > LEAP_DTE_THRESHOLD) sleeve = 'leap';
+        if(L.start_date === L.end_date) sleeve = 'day';
+        else if(L.durationDays > LEAP_DTE_THRESHOLD) sleeve = 'leap';
         else sleeve = INDEX_TICKERS.includes(L.tick) ? (creditOpen?'idx':'hdg') : 'opp';
         L.sleeve = sleeve; S.sleeve = sleeve;
         const label = `${Math.min(L.strike,S.strike)}/${Math.max(L.strike,S.strike)}${S.cp}`;
@@ -940,6 +967,11 @@ function classifyEpisodes(episodes, equityRowsCurrent){
   });
   episodes.forEach(e=>{
     if(e.sleeve) return;
+    if(e.start_date === e.end_date){
+      e.sleeve='day';
+      e.legsLabel = e.is_option ? `${e.strike}${e.cp} (Day Trade, ${e.orientation})` : 'shares (Day Trade)';
+      return;
+    }
     if(!e.is_option){ e.sleeve='stock'; e.legsLabel='shares'; return; }
     if(e.durationDays > LEAP_DTE_THRESHOLD){
       e.sleeve='leap'; e.legsLabel = `${e.strike}${e.cp} (LEAP, ${e.orientation})`; return;
@@ -960,8 +992,8 @@ function classifyEpisodes(episodes, equityRowsCurrent){
   return episodes;
 }
 
-const BUCKET_SLEEVES = {equity:['stock','aw','ov'], idx:['idx'], opp:['opp'], hdg:['hdg'], leap:['leap'], naked:['naked']};
-const BUCKET_LABELS = {all:'All', equity:'Equity', idx:'Index', opp:'Opportunistic', hdg:'Hedge', leap:'LEAPs', naked:'Other'};
+const BUCKET_SLEEVES = {equity:['stock','aw','ov'], idx:['idx'], opp:['opp'], hdg:['hdg'], leap:['leap'], day:['day'], naked:['naked']};
+const BUCKET_LABELS = {all:'All', equity:'Equity', idx:'Index', opp:'Opportunistic', hdg:'Hedge', leap:'LEAPs', day:'Day Trades', naked:'Other'};
 
 // Two legs of the same spread (linked via pairId in classifyEpisodes) get merged into one
 // netted trade row here — a credit spread's short+long legs should show as ONE result, not
@@ -1252,7 +1284,7 @@ function renderTradeTable({closed, open}){
     if(typeof av==='string') return tradeSortDir*String(av||'').localeCompare(String(bv||''));
     return tradeSortDir*((av||0)-(bv||0));
   });
-  const sleevePill = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','CSP'],ov:['ov','CC'],leap:['leap','LEAP'],naked:['naked','Other'],stock:['n','Stock']};
+  const sleevePill = {idx:['idx','Index'],opp:['opp','Opportunistic'],hdg:['hdg','Hedge'],aw:['aw','CSP'],ov:['ov','CC'],leap:['leap','LEAP'],day:['day','Day Trade'],naked:['naked','Other'],stock:['n','Stock']};
   document.getElementById('tradeTable').querySelector('tbody').innerHTML = rows.map(e=>{
     const [cls,label] = sleevePill[e.sleeve] || ['n', e.sleeve];
     const pl = e.net_cash;
