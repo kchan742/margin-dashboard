@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Margin Playbook Dashboard v7 — Part 1</title>
+<title>Margin Playbook Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -812,6 +812,12 @@ function normalizeActivityRow(r, idx){
   return {orig_order:idx, ts, date:dateOnly, acct:acctName, symbol:symRaw, tick:base, qty_signed, net_cash, unit_price};
 }
 
+// FIFO lot matching, per (account, symbol). This replaces the old "wait until the whole position
+// returns to flat" model — that worked fine for option spreads (open once, close once, so the two
+// models agree), but was wrong for a scaling equity position: selling part of a holding is a real,
+// completed transaction with its own P&L, and shouldn't have to wait on the rest of the shares to
+// sell too. Each closing transaction here matches against the oldest still-open lot(s) first and
+// posts a realized trade immediately, dated at the sale — regardless of whether anything remains open.
 function buildLegEpisodes(rawRows){
   const norm = [];
   rawRows.forEach((r,i)=>{
@@ -828,27 +834,65 @@ function buildLegEpisodes(rawRows){
   const episodes = [];
   Object.values(byKey).forEach(rows=>{
     rows.sort((a,b)=> (a.ts-b.ts) || (a.orig_order-b.orig_order));
-    let pos=0, cur=null;
+    let lots = []; // FIFO queue of still-open lots on the current side
     rows.forEach(row=>{
-      const q = row.qty_signed;
-      if(cur===null){
-        cur = {acct:row.acct, symbol:row.symbol, tick:row.tick,
-          start_date:row.date, start_order:row.ts,
-          net_cash:0, n_txns:0,
-          orientation: q>0 ? 'long':'short',
-          initial_qty: Math.abs(q),
-          first_unit_price: row.unit_price};
+      const qty = row.qty_signed;
+      const rowAbsQty = Math.abs(qty);
+      if(rowAbsQty < 1e-9) return;
+      const side = qty>0 ? 'long' : 'short';
+      const rowUnitProceeds = row.net_cash / rowAbsQty;
+      const currentSide = lots.length ? lots[0].side : null;
+
+      if(!currentSide || side===currentSide){
+        lots.push({
+          qty: rowAbsQty, remaining: rowAbsQty,
+          unitCost: rowUnitProceeds,       // negative = money paid to open
+          unitPriceRaw: row.unit_price,    // preserved for credit/debit pairing on options
+          open_date: row.date, open_order: row.ts, side
+        });
+      } else {
+        let toMatch = rowAbsQty;
+        while(toMatch > 1e-9 && lots.length){
+          const lot = lots[0];
+          const q = Math.min(toMatch, lot.remaining);
+          const realized = rowUnitProceeds*q + lot.unitCost*q; // proceeds minus cost for this slice
+          episodes.push({
+            acct: row.acct, symbol: row.symbol, tick: row.tick,
+            start_date: lot.open_date, start_order: lot.open_order,
+            end_date: row.date, end_order: row.ts,
+            net_cash: realized, n_txns: 2,
+            orientation: lot.side, initial_qty: q, cur_qty: 0,
+            first_unit_price: lot.unitPriceRaw,
+            still_open: false
+          });
+          lot.remaining -= q;
+          toMatch -= q;
+          if(lot.remaining <= 1e-9) lots.shift();
+        }
+        if(toMatch > 1e-9){
+          // sold/bought-to-cover past every open lot — flips to the opposite side
+          lots.push({
+            qty: toMatch, remaining: toMatch,
+            unitCost: rowUnitProceeds, unitPriceRaw: row.unit_price,
+            open_date: row.date, open_order: row.ts, side
+          });
+        }
       }
-      cur.net_cash += row.net_cash;
-      cur.n_txns += 1;
-      pos += q;
-      cur.end_date = row.date;
-      cur.end_order = row.ts;
-      cur.cur_qty = Math.abs(pos); // running size — matters when a position scales via adds/trims,
-                                    // unlike initial_qty which only ever reflects the first fill
-      if(Math.abs(pos) < 1e-9){ cur.still_open=false; episodes.push(cur); cur=null; }
     });
-    if(cur!==null){ cur.still_open=true; episodes.push(cur); }
+    if(lots.length){
+      const first = lots[0];
+      const totalQty = lots.reduce((a,l)=>a+l.remaining,0);
+      const totalCost = lots.reduce((a,l)=>a+l.unitCost*l.remaining,0);
+      episodes.push({
+        acct: rows[0].acct, symbol: rows[0].symbol, tick: rows[0].tick,
+        start_date: first.open_date, start_order: first.open_order,
+        end_date: null, end_order: lots[lots.length-1].open_order,
+        net_cash: totalCost, n_txns: lots.length,
+        orientation: first.side, initial_qty: first.qty, cur_qty: totalQty,
+        first_unit_price: first.unitPriceRaw,
+        still_open: true
+      });
+    }
   });
 
   episodes.forEach(e=>{
