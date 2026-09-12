@@ -1207,9 +1207,17 @@ function renderPnlStrip(closed, open){
 
 let equityCurveData = null;
 function renderEquityCurve(closed){
-  const sorted = [...closed].sort((a,b)=> a.end_date===b.end_date ? a.end_order-b.end_order : (a.end_date<b.end_date?-1:1));
+  // aggregate by close date, not by individual trade — otherwise a day with several closes (an
+  // iron condor's two legs, three MUU sells, etc.) shows as several x-axis points instead of one.
+  const byDate = {};
+  closed.forEach(e=>{
+    if(!byDate[e.end_date]) byDate[e.end_date] = {date:e.end_date, net_cash:0, trades:[]};
+    byDate[e.end_date].net_cash += e.net_cash;
+    byDate[e.end_date].trades.push(e);
+  });
+  const days = Object.values(byDate).sort((a,b)=> a.date<b.date?-1:(a.date>b.date?1:0));
   let cum=0;
-  const points = sorted.map(e=>{ cum+=e.net_cash; return cum; });
+  const points = days.map(d=>{ cum+=d.net_cash; return cum; });
   const svg = document.getElementById('equitySvg');
   const w=1000,h=220,pad=10;
   if(points.length<1){
@@ -1230,11 +1238,11 @@ function renderEquityCurve(closed){
     `<path d="${path}" fill="none" stroke="#4e9e96" stroke-width="2"/>`+
     `<line id="hoverLine" x1="0" y1="0" x2="0" y2="${h}" stroke="#8a92a5" stroke-width="1" stroke-dasharray="3,3" style="display:none;"/>`+
     `<circle id="hoverDot" r="4" fill="#4e9e96" stroke="#0d1117" stroke-width="1.5" style="display:none;"/>`;
-  equityCurveData = {sorted, points, w, h, pad, xStep, yOf};
+  equityCurveData = {days, points, w, h, pad, xStep, yOf};
 }
 function chartMouseMove(evt){
   if(!equityCurveData) return;
-  const {sorted, points, pad, xStep, yOf, w} = equityCurveData;
+  const {days, points, pad, xStep, yOf, w} = equityCurveData;
   const svg = document.getElementById('equitySvg');
   const rect = svg.getBoundingClientRect();
   if(rect.width===0) return;
@@ -1249,12 +1257,15 @@ function chartMouseMove(evt){
   if(hoverLine){ hoverLine.setAttribute('x1',x); hoverLine.setAttribute('x2',x); hoverLine.style.display='block'; }
   if(hoverDot){ hoverDot.setAttribute('cx',x); hoverDot.setAttribute('cy',y); hoverDot.style.display='block'; }
 
-  const trade = sorted[idx];
+  const day = days[idx];
   const cum = points[idx];
   const tip = document.getElementById('equityTooltip');
-  tip.innerHTML = `<div style="font-weight:600;color:var(--text);margin-bottom:2px;">${trade.end_date}</div>`+
-    `<div style="color:var(--muted);">${trade.tick}${trade.legsLabel?' · '+trade.legsLabel:''}</div>`+
-    `<div style="margin-top:4px;">Trade: <b style="color:${trade.net_cash>=0?'var(--green)':'var(--red)'};">${trade.net_cash>=0?'+':'-'}$${Math.abs(trade.net_cash).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`+
+  const tradeLines = day.trades.map(t=>
+    `<div style="color:var(--muted);">${t.tick}${t.legsLabel?' · '+t.legsLabel:''}: <b style="color:${t.net_cash>=0?'var(--green)':'var(--red)'};">${t.net_cash>=0?'+':'-'}$${Math.abs(t.net_cash).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`
+  ).join('');
+  tip.innerHTML = `<div style="font-weight:600;color:var(--text);margin-bottom:2px;">${day.date}</div>`+
+    tradeLines +
+    `<div style="margin-top:4px;">Day total: <b style="color:${day.net_cash>=0?'var(--green)':'var(--red)'};">${day.net_cash>=0?'+':'-'}$${Math.abs(day.net_cash).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`+
     `<div>Cumulative: <b style="color:${cum>=0?'var(--green)':'var(--red)'};">${cum>=0?'+':'-'}$${Math.abs(cum).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`;
   const container = document.getElementById('equityChartWrap');
   const containerRect = container.getBoundingClientRect();
