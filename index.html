@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Margin Playbook Dashboard</title>
+<title>Margin Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -126,8 +126,8 @@
 
 <header>
   <div>
-    <h1>Margin Account — Playbook Alignment Dashboard</h1>
-    <div class="sub">v7 — account toggle, exclusions, DTE fix, plus P&amp;L / equities / cumulative view</div>
+    <h1>Margin Dashboard</h1>
+    <div class="sub">Playbook alignment, P&amp;L, and trade history — reconciled from your holdings and activity CSVs</div>
   </div>
   <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
     <div class="accttoggle" id="acctToggle">
@@ -236,6 +236,16 @@
         <div class="desc">A day trade is defined by its own lifecycle — opened and closed within the same calendar day — not by option DTE. By definition that means this panel is always empty: a completed same-day round trip can't still be an open position in a holdings snapshot. Realized day trades show up in the P&amp;L panel's Day Trades bucket below; an iron condor there shows as two rows (its call spread and put spread), each already correctly netted.</div>
         <div id="dayTradeSummary"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Width In Use — BP Proxy</h2>
+    <div class="desc">Total strike-width × contracts across your open defined-risk verticals — max notional at risk before netting credit received, and a steadier proxy for buying-power usage than dollar BP since it doesn't move with premium collected. Naked legs and LEAPs have no second strike, so they don't contribute. The current figure comes from your latest holdings snapshot; the trend comes from your activities history — if the two CSVs weren't pulled at the same moment, the trend's rightmost point and the current figure can differ slightly.</div>
+    <div class="strip" id="widthStrip" style="margin-top:12px;"></div>
+    <div id="widthChartWrap" style="position:relative;margin-top:12px;">
+      <svg id="widthSvg" viewBox="0 0 1000 220" style="width:100%;height:220px;display:block;cursor:crosshair;"></svg>
+      <div id="widthTooltip" style="display:none;position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--blue);border-radius:6px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5;white-space:nowrap;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.4);"></div>
     </div>
   </div>
 
@@ -718,8 +728,126 @@ function renderDayTradeSummary(){
   }).join('') + `<div class="band-note" style="margin-top:8px;">BP currently deployed today: $${totalBp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>`;
 }
 function renderAll(){
-  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary(); renderDayTradeSummary();
+  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary(); renderDayTradeSummary(); renderWidthUsage();
 }
+
+// ---- Width In Use (BP proxy) ----
+function computeCurrentWidthInUse(){
+  return getPositions().filter(p=>p.longStrike!=null)
+    .reduce((a,p)=>a+Math.abs(p.shortStrike-p.longStrike)*p.ctr*100, 0);
+}
+function computeWidthUsageSeries(){
+  if(!tradeEpisodes.length) return [];
+  const widthTrades = tradeEpisodes.filter(e=>
+    acctMatches(e.acct) && e.legsLabel && /^[\d.]+\/[\d.]+[CP]$/.test(e.legsLabel));
+  const byDate = {};
+  const bump = (date, delta) => { byDate[date] = (byDate[date]||0) + delta; };
+  widthTrades.forEach(e=>{
+    const body = e.legsLabel.slice(0,-1); // strip trailing C/P
+    const [a,b] = body.split('/').map(Number);
+    const notional = Math.abs(b-a) * e.initial_qty * 100;
+    bump(e.start_date, notional);
+    // Only closed trades get a removal event. A still-open trade keeps contributing indefinitely —
+    // giving it a synthetic close date would make the whole series collapse to zero right at
+    // whatever date the activities file happens to end, since every open position would "close"
+    // on that same date whether it actually did or not.
+    if(!e.still_open){
+      const endPlus1 = new Date(e.end_date+'T00:00:00Z'); endPlus1.setUTCDate(endPlus1.getUTCDate()+1);
+      bump(endPlus1.toISOString().slice(0,10), -notional);
+    }
+  });
+  const dates = Object.keys(byDate).sort();
+  let cum=0;
+  return dates.map(d=>{ cum+=byDate[d]; return {date:d, value:Math.max(0,cum)}; });
+}
+let widthCurveData = null;
+function renderWidthUsage(){
+  const current = computeCurrentWidthInUse();
+  const series = computeWidthUsageSeries();
+  const avg = series.length ? series.reduce((a,d)=>a+d.value,0)/series.length : 0;
+  const peak = series.length ? Math.max(...series.map(d=>d.value)) : current;
+  document.getElementById('widthStrip').innerHTML = `
+    <div class="stat">
+      <div class="eyebrow">Currently In Use</div>
+      <div class="val">$${current.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+      <div class="foot">From latest holdings snapshot</div>
+    </div>
+    <div class="stat">
+      <div class="eyebrow">Historical Average</div>
+      <div class="val">$${avg.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+      <div class="foot">${series.length ? series.length+' days of history' : 'load activities CSV for trend'}</div>
+    </div>
+    <div class="stat">
+      <div class="eyebrow">Peak In Use</div>
+      <div class="val">$${peak.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+      <div class="foot">${current>=peak*0.9 && peak>0 ? 'Near all-time high' : 'Across all history'}</div>
+    </div>`;
+
+  const svg = document.getElementById('widthSvg');
+  const w=1000,h=220,pad=10;
+  if(series.length<2){
+    svg.innerHTML = '<text x="500" y="110" text-anchor="middle" fill="#666c7a" font-size="13" font-family="Inter">Load the activities CSV to see the trend over time</text>';
+    widthCurveData = null;
+    return;
+  }
+  const maxV = Math.max(1,...series.map(d=>d.value));
+  const xStep = (w-2*pad)/Math.max(1,series.length-1);
+  const yOf = v => h-pad-(v/maxV)*(h-2*pad);
+  const xOf = i => pad+i*xStep;
+  // step-after path: hold each value flat until the next date, then jump — matches how BP
+  // usage actually moves (constant between position changes, not a smooth interpolation)
+  let path = `M${xOf(0).toFixed(1)},${yOf(series[0].value).toFixed(1)}`;
+  for(let i=1;i<series.length;i++){
+    path += ` L${xOf(i).toFixed(1)},${yOf(series[i-1].value).toFixed(1)}`;
+    path += ` L${xOf(i).toFixed(1)},${yOf(series[i].value).toFixed(1)}`;
+  }
+  const lastX = xOf(series.length-1);
+  const baseY = yOf(0);
+  const areaPath = path+` L${lastX.toFixed(1)},${baseY.toFixed(1)} L${xOf(0).toFixed(1)},${baseY.toFixed(1)} Z`;
+  svg.innerHTML =
+    `<path d="${areaPath}" fill="rgba(111,147,184,.14)" stroke="none"/>`+
+    `<path d="${path}" fill="none" stroke="#6f93b8" stroke-width="2"/>`+
+    `<line id="widthHoverLine" x1="0" y1="0" x2="0" y2="${h}" stroke="#8a92a5" stroke-width="1" stroke-dasharray="3,3" style="display:none;"/>`+
+    `<circle id="widthHoverDot" r="4" fill="#6f93b8" stroke="#0d1117" stroke-width="1.5" style="display:none;"/>`;
+  widthCurveData = {series, xStep, pad, yOf, xOf, w};
+}
+function widthChartMouseMove(evt){
+  if(!widthCurveData) return;
+  const {series, xStep, pad, yOf, xOf, w} = widthCurveData;
+  const svg = document.getElementById('widthSvg');
+  const rect = svg.getBoundingClientRect();
+  if(rect.width===0) return;
+  const scaleX = w / rect.width;
+  const mouseX = (evt.clientX - rect.left) * scaleX;
+  let idx = Math.round((mouseX - pad) / xStep);
+  idx = Math.max(0, Math.min(series.length-1, idx));
+  const x = xOf(idx), y = yOf(series[idx].value);
+  const hoverLine = document.getElementById('widthHoverLine');
+  const hoverDot = document.getElementById('widthHoverDot');
+  if(hoverLine){ hoverLine.setAttribute('x1',x); hoverLine.setAttribute('x2',x); hoverLine.style.display='block'; }
+  if(hoverDot){ hoverDot.setAttribute('cx',x); hoverDot.setAttribute('cy',y); hoverDot.style.display='block'; }
+  const tip = document.getElementById('widthTooltip');
+  tip.innerHTML = `<div style="font-weight:600;color:var(--text);margin-bottom:2px;">${series[idx].date}</div>`+
+    `<div>Width in use: <b style="color:var(--blue);">$${series[idx].value.toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`;
+  const container = document.getElementById('widthChartWrap');
+  const containerRect = container.getBoundingClientRect();
+  let left = evt.clientX - containerRect.left + 14;
+  const top = evt.clientY - containerRect.top - 10;
+  if(left > containerRect.width - 190) left = evt.clientX - containerRect.left - 200;
+  tip.style.left = Math.max(0,left)+'px';
+  tip.style.top = Math.max(0,top)+'px';
+  tip.style.display = 'block';
+}
+function widthChartMouseLeave(){
+  const tip = document.getElementById('widthTooltip');
+  if(tip) tip.style.display='none';
+  const hoverLine = document.getElementById('widthHoverLine');
+  const hoverDot = document.getElementById('widthHoverDot');
+  if(hoverLine) hoverLine.style.display='none';
+  if(hoverDot) hoverDot.style.display='none';
+}
+document.getElementById('widthSvg').addEventListener('mousemove', widthChartMouseMove);
+document.getElementById('widthSvg').addEventListener('mouseleave', widthChartMouseLeave);
 
 // ---- closing prices ----
 function parseBulkPaste(){
@@ -1037,6 +1165,7 @@ function tryBuildTrades(){
   tradeEpisodes = mergeIntoTrades(episodes);
   document.getElementById('pnlSection').style.display='block';
   setupPnlFilterBar();
+  renderWidthUsage();
 }
 
 // ---- date range slider ----
