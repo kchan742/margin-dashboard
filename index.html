@@ -241,7 +241,7 @@
 
   <div class="panel">
     <h2>Width In Use — BP Proxy</h2>
-    <div class="desc">Total strike-width × contracts across your open defined-risk verticals — max notional at risk before netting credit received, and a steadier proxy for buying-power usage than dollar BP since it doesn't move with premium collected. Naked legs and LEAPs have no second strike, so they don't contribute. The current figure comes from your latest holdings snapshot; the trend comes from your activities history — if the two CSVs weren't pulled at the same moment, the trend's rightmost point and the current figure can differ slightly.</div>
+    <div class="desc">Strike-width × contracts across your open defined-risk verticals, net of the premium you collected to open each one — same capital-at-risk formula as the BP figure elsewhere on this dashboard (width minus credit received for credit spreads, cost paid for debit spreads), just tracked as a trend. Naked legs and LEAPs have no second strike, so they don't contribute. The current figure comes from your latest holdings snapshot; the trend comes from your activities history — if the two CSVs weren't pulled at the same moment, the trend's rightmost point and the current figure can differ slightly.</div>
     <div class="strip" id="widthStrip" style="margin-top:12px;"></div>
     <div id="widthChartWrap" style="position:relative;margin-top:12px;">
       <svg id="widthSvg" viewBox="0 0 1000 220" style="width:100%;height:220px;display:block;cursor:crosshair;"></svg>
@@ -733,8 +733,10 @@ function renderAll(){
 
 // ---- Width In Use (BP proxy) ----
 function computeCurrentWidthInUse(){
-  return getPositions().filter(p=>p.longStrike!=null)
-    .reduce((a,p)=>a+Math.abs(p.shortStrike-p.longStrike)*p.ctr*100, 0);
+  // p.bp already nets entry credit against strike width (same formula as everywhere else on this
+  // dashboard) — a credit spread's real capital-at-risk is width minus what you were paid to open
+  // it, not the full width. A debit spread's BP is just whatever was paid, capped by cost not width.
+  return getPositions().filter(p=>p.longStrike!=null).reduce((a,p)=>a+(p.bp||0), 0);
 }
 function computeWidthUsageSeries(){
   if(!tradeEpisodes.length) return [];
@@ -746,14 +748,19 @@ function computeWidthUsageSeries(){
     const body = e.legsLabel.slice(0,-1); // strip trailing C/P
     const [a,b] = body.split('/').map(Number);
     const notional = Math.abs(b-a) * e.initial_qty * 100;
-    bump(e.start_date, notional);
+    // Net premium received against the width, same formula as p.bp elsewhere: a credit spread's
+    // real capital-at-risk is width minus what you collected to open it; a debit spread's BP is
+    // simply what you paid, capped by cost rather than width.
+    const netCredit = e.entry_cash || 0;
+    const netBp = netCredit < 0 ? -netCredit : Math.max(notional - netCredit, 0);
+    bump(e.start_date, netBp);
     // Only closed trades get a removal event. A still-open trade keeps contributing indefinitely —
     // giving it a synthetic close date would make the whole series collapse to zero right at
     // whatever date the activities file happens to end, since every open position would "close"
     // on that same date whether it actually did or not.
     if(!e.still_open){
       const endPlus1 = new Date(e.end_date+'T00:00:00Z'); endPlus1.setUTCDate(endPlus1.getUTCDate()+1);
-      bump(endPlus1.toISOString().slice(0,10), -notional);
+      bump(endPlus1.toISOString().slice(0,10), -netBp);
     }
   });
   const dates = Object.keys(byDate).sort();
@@ -1014,7 +1021,7 @@ function buildLegEpisodes(rawRows){
             acct: row.acct, symbol: row.symbol, tick: row.tick,
             start_date: lot.open_date, start_order: lot.open_order,
             end_date: row.date, end_order: row.ts,
-            net_cash: realized, n_txns: 2,
+            net_cash: realized, entry_cash: lot.unitCost*q, n_txns: 2,
             orientation: lot.side, initial_qty: q, cur_qty: 0,
             first_unit_price: lot.unitPriceRaw,
             still_open: false
@@ -1041,7 +1048,7 @@ function buildLegEpisodes(rawRows){
         acct: rows[0].acct, symbol: rows[0].symbol, tick: rows[0].tick,
         start_date: first.open_date, start_order: first.open_order,
         end_date: null, end_order: lots[lots.length-1].open_order,
-        net_cash: totalCost, n_txns: lots.length,
+        net_cash: totalCost, entry_cash: totalCost, n_txns: lots.length,
         orientation: first.side, initial_qty: first.qty, cur_qty: totalQty,
         first_unit_price: first.unitPriceRaw,
         still_open: true
@@ -1141,6 +1148,7 @@ function mergeIntoTrades(episodes){
       acct:a.acct, tick:a.tick, sleeve:a.sleeve, legsLabel:a.legsLabel,
       initial_qty:a.initial_qty, cur_qty:a.cur_qty, is_option:true,
       net_cash: a.net_cash + b.net_cash,
+      entry_cash: a.entry_cash + b.entry_cash,
       still_open,
       start_date: a.start_date < b.start_date ? a.start_date : b.start_date,
       start_order: Math.min(a.start_order, b.start_order),
