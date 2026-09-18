@@ -763,7 +763,7 @@ function computeWidthUsageSeries(){
       bump(endPlus1.toISOString().slice(0,10), -netBp);
     }
   });
-  const dates = Object.keys(byDate).sort();
+  const dates = Object.keys(byDate).sort().filter(d => d <= todayStr());
   let cum=0;
   return dates.map(d=>{ cum+=byDate[d]; return {date:d, value:Math.max(0,cum)}; });
 }
