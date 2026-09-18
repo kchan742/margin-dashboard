@@ -16,7 +16,7 @@
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
   .mono{font-family:'IBM Plex Mono',monospace;}
-  header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;}
+  header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:100;background:var(--bg);}
   header h1{font-family:'Fraunces',serif;font-weight:600;font-size:22px;margin:0;}
   header .sub{color:var(--text2);font-size:12.5px;margin-top:4px;}
   .asof{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);text-align:right;}
@@ -229,12 +229,6 @@
         <h2>LEAPs — Long-Term, Premium-Funded</h2>
         <div class="desc">Single-name long calls/puts with DTE &gt; 365 days — held separately from the risk-managed sleeves above. No target band here since these are directional bets, not defined-risk spread capital.</div>
         <div id="leapSummary"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Day Trades</h2>
-        <div class="desc">A day trade is defined by its own lifecycle — opened and closed within the same calendar day — not by option DTE. By definition that means this panel is always empty: a completed same-day round trip can't still be an open position in a holdings snapshot. Realized day trades show up in the P&amp;L panel's Day Trades bucket below; an iron condor there shows as two rows (its call spread and put spread), each already correctly netted.</div>
-        <div id="dayTradeSummary"></div>
       </div>
     </div>
   </div>
@@ -716,19 +710,8 @@ function renderLeapSummary(){
       <div class="badge ${upl>=0?'g':'r'}">${upl>=0?'+':'-'}$${Math.abs(upl).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>`;
   }).join('') + `<div class="band-note" style="margin-top:8px;">Total cost basis: $${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})} · Current value: $${totalCur.toLocaleString(undefined,{maximumFractionDigits:0})} · Unrealized: ${pnl>=0?'+':'-'}$${Math.abs(pnl).toLocaleString(undefined,{maximumFractionDigits:0})}</div>`;
 }
-function renderDayTradeSummary(){
-  const dayTrades = getPositions().filter(p=>p.sleeve==='day');
-  const el = document.getElementById('dayTradeSummary');
-  if(!dayTrades.length){ el.innerHTML = '<div class="band-note">No day trades currently open in this holdings snapshot — expected most of the time, since these close same-day. Closed day trades show up in the P&L panel Day Trades bucket below.</div>'; return; }
-  const totalBp = dayTrades.reduce((a,p)=>a+(p.bp||0),0);
-  el.innerHTML = dayTrades.map(p=>{
-    const upl = p.cur - p.entry;
-    return `<div class="aw-row"><div><b class="mono" style="color:var(--pink);">${p.tick}</b> ${p.legs} × ${p.ctr} · DTE ${p.dte} · ${p.acct}</div>
-      <div class="badge ${upl>=0?'g':'r'}">${upl>=0?'+':'-'}$${Math.abs(upl).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>`;
-  }).join('') + `<div class="band-note" style="margin-top:8px;">BP currently deployed today: $${totalBp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>`;
-}
 function renderAll(){
-  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary(); renderDayTradeSummary(); renderWidthUsage();
+  renderTopStrip(); renderRiskQueue(); renderAssignmentWilling(); renderTable(); renderSleeveBands(); renderLeapSummary(); renderWidthUsage();
 }
 
 // ---- Width In Use (BP proxy) ----
