@@ -730,20 +730,27 @@ function computeWidthUsageSeries(){
   widthTrades.forEach(e=>{
     const body = e.legsLabel.slice(0,-1); // strip trailing C/P
     const [a,b] = body.split('/').map(Number);
-    const notional = Math.abs(b-a) * e.initial_qty * 100;
+    // A still-open trade's initial_qty reflects the ORIGINAL size when it was first opened — after
+    // a partial close or roll trims it down, the true remaining size lives in cur_qty instead. Using
+    // initial_qty here double-counted anything that had ever been partially closed (e.g. opened 10,
+    // trimmed 5 later: this used to keep counting all 10 as still in use instead of the real 5).
+    const qty = e.still_open ? e.cur_qty : e.initial_qty;
+    const notional = Math.abs(b-a) * qty * 100;
     // Net premium received against the width, same formula as p.bp elsewhere: a credit spread's
     // real capital-at-risk is width minus what you collected to open it; a debit spread's BP is
     // simply what you paid, capped by cost rather than width.
     const netCredit = e.entry_cash || 0;
     const netBp = netCredit < 0 ? -netCredit : Math.max(notional - netCredit, 0);
     bump(e.start_date, netBp);
-    // Only closed trades get a removal event. A still-open trade keeps contributing indefinitely —
-    // giving it a synthetic close date would make the whole series collapse to zero right at
-    // whatever date the activities file happens to end, since every open position would "close"
-    // on that same date whether it actually did or not.
+    // Remove on the close date itself, not the day after. "Currently In Use" comes from your
+    // holdings snapshot, which by definition only reflects what's still open when it was pulled —
+    // a position closed earlier that same day is already gone from it. Removing a day later than
+    // that made every same-day close (including day trades — opened and closed within one session)
+    // still show up in that day's chart point even though it wasn't part of the actual end-of-day
+    // holdings state, which is exactly the inconsistency this created. A true day trade now nets
+    // to zero for its day, since its add and remove land on the same date and cancel out.
     if(!e.still_open){
-      const endPlus1 = new Date(e.end_date+'T00:00:00Z'); endPlus1.setUTCDate(endPlus1.getUTCDate()+1);
-      bump(endPlus1.toISOString().slice(0,10), -netBp);
+      bump(e.end_date, -netBp);
     }
   });
   const dates = Object.keys(byDate).sort().filter(d => d <= todayStr());
