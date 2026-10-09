@@ -197,7 +197,7 @@
             <th data-k="tick">Ticker</th><th data-k="acct">Acct</th><th data-k="sleeve">Sleeve</th><th>Legs</th><th data-k="dte">DTE</th><th data-k="ctr">Ctr</th>
             <th data-k="entry">Entry</th><th data-k="cur">Current</th><th data-k="pl">+/-</th><th>Close</th><th>Dist.</th><th>Status</th>
           </tr></thead>
-          <tbody></tbody>
+          <tbody></tbody><tfoot id="posTotal"></tfoot>
         </table>
         </div>
       </div>
@@ -670,6 +670,14 @@ function renderTable(){
       <td><span class="badge ${st.cls}">${st.txt}</span></td>
     </tr>`;
   }).join('');
+  const fm=v=>(v>=0?'+':'-')+'$'+Math.abs(Math.round(v)).toLocaleString();
+  const tE=rows.reduce((a,p)=>a+p.entry,0), tC=rows.reduce((a,p)=>a+p.cur,0), tP=tC-tE;
+  const tf=document.getElementById('posTotal');
+  if(tf) tf.innerHTML = rows.length ? `<tr style="border-top:2px solid var(--border,#888);font-weight:700;">
+    <td colspan="6">Total (${rows.length} positions, mark-to-market)</td>
+    <td>${fm(tE)}</td><td>${fm(tC)}</td>
+    <td><span class="badge ${tP>=0?'g':'r'}" style="font-size:1.05em;font-weight:700;">${fm(tP)}</span></td>
+    <td colspan="3"></td></tr>` : '';
 }
 document.querySelectorAll('#posTable th[data-k]').forEach(th=>{
   th.addEventListener('click', ()=>{
