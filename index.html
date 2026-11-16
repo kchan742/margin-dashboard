@@ -1370,21 +1370,26 @@ function chartMouseMove(evt){
   const day = days[idx];
   const cum = points[idx];
   const tip = document.getElementById('equityTooltip');
-  const tradeLines = day.trades.map(t=>
-    `<div style="color:var(--muted);">${t.tick}${t.legsLabel?' · '+t.legsLabel:''}: <b style="color:${t.net_cash>=0?'var(--green)':'var(--red)'};">${t.net_cash>=0?'+':'-'}$${Math.abs(t.net_cash).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`
-  ).join('');
-  tip.innerHTML = `<div style="font-weight:600;color:var(--text);margin-bottom:2px;">${day.date}</div>`+
-    tradeLines +
-    `<div style="margin-top:4px;">Day total: <b style="color:${day.net_cash>=0?'var(--green)':'var(--red)'};">${day.net_cash>=0?'+':'-'}$${Math.abs(day.net_cash).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`+
-    `<div>Cumulative: <b style="color:${cum>=0?'var(--green)':'var(--red)'};">${cum>=0?'+':'-'}$${Math.abs(cum).toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>`;
+  const fmt=v=>(v>=0?'+':'-')+'$'+Math.abs(v).toLocaleString(undefined,{maximumFractionDigits:0});
+  const col=v=>v>=0?'var(--green)':'var(--red)';
+  const MAXT=12;
+  const sorted=[...day.trades].sort((a,b)=>Math.abs(b.net_cash)-Math.abs(a.net_cash));
+  const tradeLines = sorted.slice(0,MAXT).map(t=>
+    `<div style="color:var(--muted);">${t.tick}${t.legsLabel?' · '+t.legsLabel:''}: <b style="color:${col(t.net_cash)};">${fmt(t.net_cash)}</b></div>`
+  ).join('') + (sorted.length>MAXT ? `<div style="color:var(--muted);">+${sorted.length-MAXT} more (smaller)</div>` : '');
+  tip.innerHTML = `<div style="font-weight:600;color:var(--text);">${day.date} <span style="font-weight:400;color:var(--muted);">· ${day.trades.length} trade${day.trades.length===1?'':'s'}</span></div>`+
+    `<div>Day total: <b style="color:${col(day.net_cash)};">${fmt(day.net_cash)}</b></div>`+
+    `<div style="padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--border,#444);">Cumulative: <b style="color:${col(cum)};">${fmt(cum)}</b></div>`+
+    tradeLines;
   const container = document.getElementById('equityChartWrap');
   const containerRect = container.getBoundingClientRect();
   let left = evt.clientX - containerRect.left + 14;
-  const top = evt.clientY - containerRect.top - 10;
+  let top = evt.clientY - containerRect.top - 10;
   if(left > containerRect.width - 190) left = evt.clientX - containerRect.left - 200;
   tip.style.left = Math.max(0,left)+'px';
-  tip.style.top = Math.max(0,top)+'px';
   tip.style.display = 'block';
+  top = Math.min(top, containerRect.height - tip.offsetHeight);
+  tip.style.top = Math.max(0,top)+'px';
 }
 function chartMouseLeave(){
   const tip = document.getElementById('equityTooltip');
